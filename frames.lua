@@ -191,9 +191,10 @@ function PCL_frames:CreateMainFrame()
     PCL_mainFrame.sa.text = PCL_mainFrame.sa:CreateFontString(nil, "OVERLAY", "GameFontHighlight");
     PCL_mainFrame.sa.text:SetPoint("CENTER", PCL_mainFrame.sa, "CENTER", 0, 0);
     PCL_mainFrame.sa.text:SetText("SA")
-    PCL_mainFrame.sa.text:SetTextColor(0, 0.7, 0.85)	
-    PCL_mainFrame.sa:SetScript("OnClick", function()PCLcore.Function:simplearmoryLink()end)	
-	
+    -- Use Purple color for SA button
+    PCL_mainFrame.sa.text:SetTextColor(0.6, 0.2, 0.8, 1)
+    PCL_mainFrame.sa:SetScript("OnClick", function()PCLcore.Function:simplearmoryLink()end)
+
     -- DFA button
     PCL_mainFrame.dfa = CreateFrame("Button", nil, PCL_mainFrame);
     PCL_mainFrame.dfa:SetSize(60, 15)
@@ -209,8 +210,9 @@ function PCL_frames:CreateMainFrame()
     PCL_mainFrame.dfa.text = PCL_mainFrame.dfa:CreateFontString(nil, "OVERLAY", "GameFontHighlight");
     PCL_mainFrame.dfa.text:SetPoint("CENTER", PCL_mainFrame.dfa, "CENTER", 0, 0);
     PCL_mainFrame.dfa.text:SetText("DFA")
-    PCL_mainFrame.dfa.text:SetTextColor(0, 0.7, 0.85)	
-    PCL_mainFrame.dfa:SetScript("OnClick", function()PCLcore.Function:dfaLink()end)		
+    -- Use purple color for DFA button
+    PCL_mainFrame.dfa.text:SetTextColor(0.6, 0.2, 0.8, 1)	
+    PCL_mainFrame.dfa:SetScript("OnClick", function()PCLcore.Function:dfaLink()end)
 
 
 	--PCL Frame settings
@@ -259,8 +261,8 @@ function PCL_frames:CreateMainFrame()
 			PCL_mainFrame.title:SetPoint("TOPLEFT", PCL_mainFrame, "TOPLEFT", 10, -2)  -- Moved down 5px from the very top
 		end
         PCL_mainFrame.title:SetText(L("Pet Collection Log"))
-
-        PCL_mainFrame.title:SetTextColor(0.3, 0.7, 0.9, 1)  -- White text for better visibility
+        -- Use Purple colour
+        PCL_mainFrame.title:SetTextColor(0.6, 0.2, 0.8, 1)  -- Purple color
     end
     
     -- Scroll Frame for Main Window
