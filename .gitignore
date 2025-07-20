@@ -1,0 +1,46 @@
+# Development tools and environments
+dev-tools/.vscode/
+dev-tools/venv/
+dev-tools/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.pytest_cache/
+
+# Python virtual environments
+.venv/
+venv/
+.env
+
+# Development data files (now organized in dev-tools)
+dev-tools/raw-data/*.json
+dev-tools/data-processing/*.html
+
+# Temporary and backup files
+*.backup
+*.tmp
+*.bak
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+raw-data/
+data-processing/
+dev-tools/
+docs/

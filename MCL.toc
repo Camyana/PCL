@@ -1,0 +1,25 @@
+## Interface: 110107
+## Title: |cFF1FB7EBPCL |cFFFFFFFF- Pet Collection Log
+## Title-zhTW: |cFF1FB7EBPCL |cFFFFFFFF- 寵物收集日誌
+## Notes: A tool used to log collected battle pets in a similiar way to Simple Armory.
+## Notes-zhTW: 一個用於記錄戰寵收集的工具，類似於Simple Armory。
+## Version: 3.0.0
+## DefaultState: enabled
+## LoadWith: Blizzard_Collections
+## SavedVariables: PCL_DB, PETLIST, PCL_PINNED, PCL_SETTINGS
+## Author: Discord: Cam#7332
+## Description: A tool used to log collected battle pets in a similiar way to Simple Armory.
+## Description-zhTW: 一個用於記錄戰寵收集的工具，類似於Simple Armory。
+## IconTexture: Interface\AddOns\PCL\pcl-logo-32
+## AddonCompartmentFunc: PCL_OnAddonCompartmentClick
+
+libs\load_libs.xml
+locales\Locales.xml
+locales.lua
+button.xml
+frame.xml
+data.lua
+functions.lua
+frames.lua
+main.lua
+Core.lua

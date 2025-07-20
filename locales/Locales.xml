@@ -1,0 +1,16 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" 
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+    <Script file="PCL_enUS.lua"/>
+    <Script file="PCL_zhCN.lua"/>
+    <Script file="PCL_zhTW.lua"/>
+    <Script file="PCL_frFR.lua"/>
+    <Script file="PCL_deDE.lua"/>
+    <Script file="PCL_esES.lua"/>
+    <Script file="PCL_esMX.lua"/>
+    <Script file="PCL_ruRU.lua"/>
+    <Script file="PCL_ptBR.lua"/>
+    <Script file="PCL_koKR.lua"/>
+    <Script file="PCL_itIT.lua"/>
+</Ui>
