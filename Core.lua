@@ -777,6 +777,11 @@ SLASH_PCL1 = "/PCL";
 SlashCmdList["PCL"] = function(msg)
     if msg:lower() == "help" then
         print(PCLcore.L["|cff00CCFFPet Collection Log Commands:\n|cffFF0000Show:|cffFFFFFF Shows your Pet collection log\n|cffFF0000Icon:|cffFFFFFF Toggles the minimap icon\n|cffFF0000Config:|cffFFFFFF Opens the settings\n|cffFF0000Help:|cffFFFFFF Shows commands"])
+        print("|cffFF0000Notification Commands:|r")
+        print("|cffFFFFFF/pcl resetnotify|r - Reset notification status")
+        print("|cffFFFFFF/pcl testwelcome|r - Show welcome notification")
+        print("|cffFFFFFF/pcl testupdate|r - Show update notification")
+        print("|cffFFFFFF/pcl checknotify|r - Check for notifications now")
     end
     if msg:lower() == "show" then
         PCLcore.Main.Toggle();
@@ -810,5 +815,38 @@ SlashCmdList["PCL"] = function(msg)
         print("- Pet Journal - Total pets:", numPets, "Owned:", numOwned)
         print("- Collections addon loaded:", C_AddOns.IsAddOnLoaded("Blizzard_Collections"))
         print("- Minimap icon hidden:", PCL_SETTINGS.minimap and PCL_SETTINGS.minimap.hide or "Unknown")
+    end
+    -- Notification commands
+    if msg:lower() == "resetnotify" then
+        local notifications = (PCL and PCL.Notifications) or (PCLcore and PCLcore.Notifications)
+        if notifications and notifications.ResetNotificationStatus then
+            notifications:ResetNotificationStatus()
+        else
+            print("|cffFF0000PCL:|r Notification system not available yet. Try reloading your UI (/reload).")
+        end
+    end
+    if msg:lower() == "testwelcome" then
+        local notifications = (PCL and PCL.Notifications) or (PCLcore and PCLcore.Notifications)
+        if notifications and notifications.ForceShowNotification then
+            notifications:ForceShowNotification("welcome")
+        else
+            print("|cffFF0000PCL:|r Notification system not available yet. Try reloading your UI (/reload).")
+        end
+    end
+    if msg:lower() == "testupdate" then
+        local notifications = (PCL and PCL.Notifications) or (PCLcore and PCLcore.Notifications)
+        if notifications and notifications.ForceShowNotification then
+            notifications:ForceShowNotification("update")
+        else
+            print("|cffFF0000PCL:|r Notification system not available yet. Try reloading your UI (/reload).")
+        end
+    end
+    if msg:lower() == "checknotify" then
+        local notifications = (PCL and PCL.Notifications) or (PCLcore and PCLcore.Notifications)
+        if notifications and notifications.TriggerCheck then
+            notifications:TriggerCheck()
+        else
+            print("|cffFF0000PCL:|r Notification system not available yet. Try reloading your UI (/reload).")
+        end
     end
  end
