@@ -735,32 +735,41 @@ function PetCard:CreatePetCardContent(parentFrame, petData)
         self.cameraScale = currentScale  -- Store current scale
     end)
     
-    -- Set up the 3D model
-    if companionID and companionID > 0 then
-        local success = pcall(function()
-            petModel:SetCreature(companionID)
-        end)
-        
-        if success then
-            petModel:Show()
-            C_Timer.After(0.1, function()
-                if petModel then
-                    petModel:SetCamDistanceScale(1.8)
-                    petModel:SetRotation(0.3)
-                    if petModel.RefreshCamera then
-                        petModel:RefreshCamera()
-                    end
-                end
+    -- Set up the 3D model with fallback
+    if modelVariations and modelVariations.variations and #modelVariations.variations > 0 then
+        -- Model variations available - will be handled by tab system below
+    else
+        -- No variations - set up default model
+        if companionID and companionID > 0 then
+            local success = pcall(function()
+                petModel:SetCreature(companionID)
             end)
-        else
-            petModel:Hide()
+            
+            if success then
+                petModel:Show()
+                C_Timer.After(0.1, function()
+                    if petModel then
+                        petModel:SetCamDistanceScale(1.8)
+                        petModel:SetRotation(0.3)
+                        if petModel.RefreshCamera then
+                            petModel:RefreshCamera()
+                        end
+                    end
+                end)
+            else
+                petModel:Hide()
+            end
         end
     end
     
     -- Fallback icon if 3D model doesn't work
-    local fallbackIcon = modelFrame:CreateTexture(nil, "ARTWORK")
-    fallbackIcon:SetSize(128, 128)
-    fallbackIcon:SetPoint("CENTER", modelFrame, "CENTER", 0, 0)
+    local fallbackIcon = mainContentFrame.modelFrame.fallbackIcon
+    if not fallbackIcon then
+        fallbackIcon = mainContentFrame.modelFrame:CreateTexture(nil, "ARTWORK")
+        mainContentFrame.modelFrame.fallbackIcon = fallbackIcon
+        fallbackIcon:SetSize(128, 128)
+        fallbackIcon:SetPoint("CENTER", mainContentFrame.modelFrame, "CENTER", 20, 0)  -- Offset for tabs
+    end
     
     if not companionID or companionID <= 0 then
         if speciesIcon then
@@ -949,8 +958,8 @@ function PetCard:UpdateWindow(petData)
         -- Use PlayerModel for 3D display
         petModel = CreateFrame("PlayerModel", nil, mainContentFrame.modelFrame)
         mainContentFrame.modelFrame.petModel = petModel
-        petModel:SetSize(PET_CARD_WIDTH - 50, 175)  -- Increased from 120 to 175 to match larger frame
-        petModel:SetPoint("CENTER", mainContentFrame.modelFrame, "CENTER", 0, 0)
+        petModel:SetSize(PET_CARD_WIDTH - 90, 175)  -- Reduced width to make room for tabs
+        petModel:SetPoint("CENTER", mainContentFrame.modelFrame, "CENTER", 20, 0)  -- Offset right for tabs
         
         -- Enable mouse interaction for camera controls
         petModel:EnableMouse(true)
@@ -990,6 +999,427 @@ function PetCard:UpdateWindow(petData)
                 end
             end
         end)
+    end
+    
+    -- Create model variation tabs system
+    local modelVariationsFrame = mainContentFrame.modelFrame.modelVariationsFrame
+    if not modelVariationsFrame then
+        modelVariationsFrame = CreateFrame("Frame", nil, mainContentFrame.modelFrame)
+        mainContentFrame.modelFrame.modelVariationsFrame = modelVariationsFrame
+        modelVariationsFrame:SetSize(40, 175)  -- Narrow tab area
+        modelVariationsFrame:SetPoint("LEFT", mainContentFrame.modelFrame, "LEFT", 5, 0)
+    end
+    
+    -- Get model variations for this pet
+    local modelVariations = nil
+    if PCLcore.PetModelVariations and PCLcore.PetModelVariations[petData.speciesID] then
+        modelVariations = PCLcore.PetModelVariations[petData.speciesID]
+    end
+    
+    -- Clear existing tabs
+    if modelVariationsFrame.tabs then
+        for _, tab in ipairs(modelVariationsFrame.tabs) do
+            tab:Hide()
+            tab:SetParent(nil)
+        end
+    end
+    modelVariationsFrame.tabs = {}
+    
+    -- Function to update the model display
+    local function UpdateModelDisplay(displayID, isOwned)
+        if not petModel then 
+            return 
+        end
+        
+        local modelShown = false
+        
+        if displayID then
+            -- Try method 1: Set display info directly
+            local success = pcall(function()
+                petModel:SetDisplayInfo(tonumber(displayID))
+                modelShown = true
+            end)
+            
+            if not success and companionID and companionID > 0 then
+                -- Try method 2: Set creature and override display
+                success = pcall(function()
+                    petModel:SetCreature(companionID)
+                    -- Some models might need the display ID set after creature
+                    petModel:SetDisplayInfo(tonumber(displayID))
+                    modelShown = true
+                end)
+            end
+            
+            if not success and companionID and companionID > 0 then
+                -- Fallback: Just use the base creature model
+                success = pcall(function()
+                    petModel:SetCreature(companionID)
+                    modelShown = true
+                end)
+            end
+        elseif companionID and companionID > 0 then
+            -- No specific display ID, use creature ID
+            local success = pcall(function()
+                petModel:SetCreature(companionID)
+                modelShown = true
+            end)
+        end
+        
+        if modelShown then
+            petModel:Show()
+            -- Apply camera settings after a brief delay
+            C_Timer.After(0.1, function()
+                if petModel then
+                    petModel:SetCamDistanceScale(1.8)
+                    petModel:SetRotation(0.3)
+                    petModel.currentRotation = 0.3
+                    if petModel.RefreshCamera then
+                        petModel:RefreshCamera()
+                    end
+                end
+            end)
+            
+            -- Update visual feedback based on ownership
+            if petModel and petModel.SetDesaturated then
+                if isOwned then
+                    petModel:SetDesaturated(false)
+                    petModel:SetAlpha(1.0)
+                else
+                    petModel:SetDesaturated(true)
+                    petModel:SetAlpha(0.6)
+                end
+            elseif petModel then
+                -- Fallback: only set alpha if SetDesaturated is not available
+                if isOwned then
+                    petModel:SetAlpha(1.0)
+                else
+                    petModel:SetAlpha(0.6)
+                end
+            end
+            
+            -- Hide fallback icon
+            if fallbackIcon then
+                fallbackIcon:Hide()
+            end
+        else
+            -- Model failed to load, show fallback icon
+            if petModel then
+                petModel:Hide()
+            end
+            if fallbackIcon and speciesIcon then
+                fallbackIcon:SetTexture(speciesIcon)
+                fallbackIcon:Show()
+                if fallbackIcon.SetDesaturated then
+                    if not isOwned then
+                        fallbackIcon:SetDesaturated(true)
+                        fallbackIcon:SetAlpha(0.6)
+                    else
+                        fallbackIcon:SetDesaturated(false)
+                        fallbackIcon:SetAlpha(1.0)
+                    end
+                else
+                    -- Fallback: only set alpha if SetDesaturated is not available
+                    if not isOwned then
+                        fallbackIcon:SetAlpha(0.6)
+                    else
+                        fallbackIcon:SetAlpha(1.0)
+                    end
+                end
+            elseif fallbackIcon then
+                -- Ensure fallback icon is hidden if no speciesIcon
+                fallbackIcon:Hide()
+            end
+        end
+    end
+    
+    -- Function to check if player owns this specific display variant
+    local function PlayerOwnsDisplayVariant(displayID)
+        if not displayID then return false end
+        
+        -- If player doesn't have any of this species, they can't own any variants
+        if collectedCount == 0 then
+            return false
+        end
+        
+        -- Check probability and return ownership based on collection count
+        local variations = modelVariations and modelVariations.variations
+        if variations then
+            for _, variation in ipairs(variations) do
+                if variation.displays then
+                    for _, display in ipairs(variation.displays) do
+                        if display.id == displayID then
+                            -- For high-probability variants (>= 80%), assume owned if pet is collected
+                            if display.probability >= 80 then
+                                return true
+                            end
+                            
+                            -- For medium-probability variants (20-79%), show as potentially owned based on collection count
+                            if display.probability >= 20 and display.probability < 80 then
+                                local result = collectedCount >= 2
+                                return result
+                            end
+                            
+                            -- For rare variants (<20%), be more generous
+                            if display.probability < 20 and display.probability > 0 then
+                                local result
+                                if display.probability < 5 then
+                                    -- For very rare variants, show the most common one as owned if we have any pets
+                                    -- Find the highest probability among all variants for this pet
+                                    local maxProbability = 0
+                                    if PCLcore.PetModelVariations[petData.speciesID] and PCLcore.PetModelVariations[petData.speciesID].variations then
+                                        for _, variation in ipairs(PCLcore.PetModelVariations[petData.speciesID].variations) do
+                                            if variation.displays then
+                                                for _, varDisplay in ipairs(variation.displays) do
+                                                    if varDisplay.probability > maxProbability then
+                                                        maxProbability = varDisplay.probability
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                    
+                                    -- If this is the most common variant and we have any pets, show as owned
+                                    if display.probability == maxProbability and collectedCount >= 1 then
+                                        result = true
+                                    else
+                                        result = collectedCount >= 2
+                                    end
+                                else
+                                    result = collectedCount >= 1
+                                end
+                                return result
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- Fallback: If we have collected pets but no variants detected, 
+        -- assume ownership of at least the most common variant
+        if collectedCount > 0 and variations then
+            local highestProb = 0
+            local mostCommonDisplayID = nil
+            for _, variation in ipairs(variations) do
+                if variation.displays then
+                    for _, display in ipairs(variation.displays) do
+                        if display.probability > highestProb then
+                            highestProb = display.probability
+                            mostCommonDisplayID = display.id
+                        end
+                    end
+                end
+            end
+            
+            if mostCommonDisplayID == displayID then
+                return true
+            end
+        end
+        
+        return false
+    end
+    
+    if modelVariations and modelVariations.variations and #modelVariations.variations > 0 then
+        -- Count total display variants across all variations
+        local totalDisplays = 0
+        for varIndex, variation in ipairs(modelVariations.variations) do
+            if variation.displays then
+                totalDisplays = totalDisplays + #variation.displays
+            end
+        end
+        
+        -- Only show tabs if there are multiple display variants
+        if totalDisplays > 1 then
+            -- Calculate total probability for percentage normalization
+            local totalProbability = 0
+            for varIndex, variation in ipairs(modelVariations.variations) do
+                if variation.displays then
+                    for dispIndex, display in ipairs(variation.displays) do
+                        totalProbability = totalProbability + (display.probability or 1)
+                    end
+                end
+            end
+            
+            -- Create tabs for each model variation
+            local tabIndex = 1
+            local selectedTab = 1
+        
+        for varIndex, variation in ipairs(modelVariations.variations) do
+            if variation.displays then
+                for dispIndex, display in ipairs(variation.displays) do
+                    if tabIndex <= 6 then  -- Limit to 6 tabs to fit in the space
+                        local tab = CreateFrame("Button", nil, modelVariationsFrame, "BackdropTemplate")
+                        tab:SetSize(32, 25)
+                        tab:SetPoint("TOPLEFT", modelVariationsFrame, "TOPLEFT", 2, -(tabIndex - 1) * 28)
+                        
+                        -- Tab styling
+                        tab:SetBackdrop({
+                            bgFile = "Interface\\Buttons\\WHITE8x8",
+                            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                            edgeSize = 2,
+                            insets = {left = 2, right = 2, top = 2, bottom = 2}
+                        })
+                        
+                        -- Check if player owns this variant
+                        local isOwned = PlayerOwnsDisplayVariant(display.id)
+                        
+                        if isOwned then
+                            tab:SetBackdropColor(0.2, 0.6, 0.2, 0.8)  -- Green for owned
+                            tab:SetBackdropBorderColor(0.4, 0.8, 0.4, 1)
+                        else
+                            tab:SetBackdropColor(0.3, 0.3, 0.3, 0.8)  -- Gray for not owned
+                            tab:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+                        end
+                        
+                        -- Tab number and ownership indicator
+                        local tabText = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                        tabText:SetPoint("CENTER", tab, "CENTER", 0, 0)
+                        tabText:SetText(tostring(tabIndex))
+                        if isOwned then
+                            tabText:SetTextColor(1, 1, 1, 1)  -- White for owned
+                        else
+                            tabText:SetTextColor(0.6, 0.6, 0.6, 1)  -- Gray for not owned
+                        end
+                        
+                        -- Add checkmark for owned variants
+                        if isOwned then
+                            local checkmark = tab:CreateTexture(nil, "OVERLAY")
+                            checkmark:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
+                            checkmark:SetSize(8, 8)
+                            checkmark:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", -2, 2)
+                            tab.checkmark = checkmark
+                        end
+                        
+                        -- Store display info
+                        tab.displayID = display.id
+                        tab.isOwned = isOwned
+                        tab.probability = display.probability
+                        tab.totalProbability = totalProbability
+                        tab.tabIndex = tabIndex
+                        
+                        -- Tab click handler
+                        tab:SetScript("OnClick", function(self)
+                            -- Update all tabs to unselected state
+                            for _, otherTab in ipairs(modelVariationsFrame.tabs) do
+                                if otherTab.isOwned then
+                                    otherTab:SetBackdropColor(0.2, 0.6, 0.2, 0.8)
+                                    otherTab:SetBackdropBorderColor(0.4, 0.8, 0.4, 1)
+                                else
+                                    otherTab:SetBackdropColor(0.3, 0.3, 0.3, 0.8)
+                                    otherTab:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+                                end
+                            end
+                            
+                            -- Set this tab as selected
+                            if self.isOwned then
+                                self:SetBackdropColor(0.1, 0.8, 0.1, 1.0)  -- Brighter green for selected owned
+                                self:SetBackdropBorderColor(0.6, 1.0, 0.6, 1)
+                            else
+                                self:SetBackdropColor(0.5, 0.5, 0.5, 1.0)  -- Brighter gray for selected not owned
+                                self:SetBackdropBorderColor(0.7, 0.7, 0.7, 1)
+                            end
+                            
+                            selectedTab = self.tabIndex
+                            UpdateModelDisplay(self.displayID, self.isOwned)
+                        end)
+                        
+                        -- Tooltip for tab
+                        tab:SetScript("OnEnter", function(self)
+                            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                            GameTooltip:SetText("Model Variant " .. self.tabIndex, 1, 1, 1, 1, true)
+                            GameTooltip:AddLine("Display ID: " .. self.displayID, 0.8, 0.8, 0.8)
+                            
+                            -- Show probability info
+                            if self.probability and self.probability > 0 then
+                                -- Calculate normalized percentage
+                                local percentage = 0
+                                if self.totalProbability and self.totalProbability > 0 then
+                                    percentage = (self.probability / self.totalProbability) * 100
+                                end
+                                
+                                if percentage >= 80 then
+                                    GameTooltip:AddLine(string.format("Very Common (%.0f%%)", percentage), 0.2, 1, 0.2)
+                                elseif percentage >= 20 then
+                                    GameTooltip:AddLine(string.format("Common (%.1f%%)", percentage), 0.9, 0.9, 0.5)
+                                else
+                                    GameTooltip:AddLine(string.format("Rare (%.1f%%)", percentage), 1, 0.5, 0.2)
+                                end
+                            end
+                            
+                            -- Ownership status
+                            if self.isOwned then
+                                GameTooltip:AddLine("You likely own this variant", 0.2, 1, 0.2)
+                            else
+                                GameTooltip:AddLine("You likely don't own this variant", 1, 0.4, 0.4)
+                            end
+                            
+                            GameTooltip:AddLine("Click to preview", 0.6, 0.6, 1)
+                            GameTooltip:Show()
+                        end)
+                        
+                        tab:SetScript("OnLeave", function(self)
+                            GameTooltip:Hide()
+                        end)
+                        
+                        table.insert(modelVariationsFrame.tabs, tab)
+                        tabIndex = tabIndex + 1
+                    end
+                end
+            end
+        end
+        
+        -- Select first owned variant, or first variant if none owned
+        local firstOwnedTab = nil
+        local firstTab = modelVariationsFrame.tabs[1]
+        
+        for _, tab in ipairs(modelVariationsFrame.tabs) do
+            if tab.isOwned and not firstOwnedTab then
+                firstOwnedTab = tab
+                break
+            end
+        end
+        
+        local defaultTab = firstOwnedTab or firstTab
+        if defaultTab then
+            defaultTab:GetScript("OnClick")(defaultTab)
+        end
+        
+        -- Show variation count and ownership summary
+        local variationLabel = modelVariationsFrame.variationLabel
+        if not variationLabel then
+            variationLabel = modelVariationsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            modelVariationsFrame.variationLabel = variationLabel
+            variationLabel:SetPoint("BOTTOM", modelVariationsFrame, "BOTTOM", 0, 5)
+        end
+        
+        -- Count owned variants
+        local ownedCount = 0
+        for _, tab in ipairs(modelVariationsFrame.tabs) do
+            if tab.isOwned then
+                ownedCount = ownedCount + 1
+            end
+        end
+        
+        local totalCount = #modelVariationsFrame.tabs
+        variationLabel:SetText(string.format("%d/%d variants", ownedCount, totalCount))
+        
+        -- Color based on completion
+        if ownedCount == totalCount then
+            variationLabel:SetTextColor(0.2, 1, 0.2, 1)  -- Green - complete
+        elseif ownedCount > 0 then
+            variationLabel:SetTextColor(1, 1, 0.5, 1)  -- Yellow - partial
+        else
+            variationLabel:SetTextColor(1, 0.4, 0.4, 1)  -- Red - none
+        end
+        
+        else
+            -- Only one variant, don't show tabs - just use default display
+            UpdateModelDisplay(creatureDisplayID, true)
+        end
+        
+    else
+        -- No model variations - use default display
+        UpdateModelDisplay(creatureDisplayID, true)
     end
     
     -- Add fullscreen button to model frame
@@ -2001,6 +2431,53 @@ SlashCmdList["PCLBREEDTEST"] = function(msg)
     end
     
     PetCard:TestBreedData(speciesID)
+end
+
+-- Add model variations testing slash command
+SLASH_PCLMODELTEST1 = "/pclmodels"
+SlashCmdList["PCLMODELTEST"] = function(msg)
+    local speciesID = tonumber(msg)
+    if not speciesID then
+        speciesID = 4533  -- Meek Bloodlasher - has multiple variants
+    end
+    
+    print("Testing model variations for species ID:", speciesID)
+    
+    -- Check if model variations data is loaded
+    if not PCLcore or not PCLcore.PetModelVariations then
+        print("ERROR: PCLcore.PetModelVariations not loaded")
+        return
+    end
+    
+    local variations = PCLcore.PetModelVariations[speciesID]
+    if not variations then
+        print("No model variations found for species", speciesID)
+        return
+    end
+    
+    print("Found model variations for species", speciesID)
+    print("NPC ID:", variations.npc_id)
+    print("Number of variation sets:", #variations.variations)
+    
+    for i, variation in ipairs(variations.variations) do
+        print(string.format("  Variation %d: %s", i, variation.name or "Unnamed"))
+        if variation.displays then
+            for j, display in ipairs(variation.displays) do
+                print(string.format("    Display %d: ID=%s, Probability=%.1f%%", 
+                      j, display.id, display.probability))
+            end
+        end
+    end
+    
+    -- Create simple pet data structure and show the card
+    local petData = {
+        speciesID = speciesID,
+        source = "Model Variation Test",
+        zone = "Test Zone"
+    }
+    
+    -- Show the pet card to test the tab system
+    PetCard:Show(petData)
 end
 
 -- Test comparison system command

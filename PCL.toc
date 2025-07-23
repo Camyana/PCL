@@ -23,6 +23,7 @@ button.xml
 frame.xml
 data.lua
 breeds.lua
+model_variations.lua
 collection_comparison.lua
 functions.lua
 PetCard.lua

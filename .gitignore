@@ -44,4 +44,4 @@ raw-data/
 data-processing/
 dev-tools/
 docs/
-*.code-workspace
+PCL.code-workspace
