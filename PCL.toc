@@ -1,5 +1,5 @@
-## Interface: 110107
-## Interface-Retail: 110107
+## Interface: 110200
+## Interface-Retail: 110200
 ## Interface-Mists: 50400
 ## Title: |cFF1FB7EBPCL |cFFFFFFFF- Pet Collection Log
 ## Title-zhTW: |cFF1FB7EBPCL |cFFFFFFFF- 寵物收集日誌
