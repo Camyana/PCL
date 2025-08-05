@@ -3,21 +3,6 @@ local PCL, PCLcore = ...;
 PCLcore.Function = {};
 local PCL_functions = PCLcore.Function;
 
--- Function to detect if we're running on Classic WoW
-function PCL_functions:IsClassicWoW()
-    -- WOW_PROJECT_ID constants:
-    -- WOW_PROJECT_MAINLINE = 1 (Retail)
-    -- WOW_PROJECT_CLASSIC = 2 (Classic Era) 
-    -- WOW_PROJECT_BURNING_CRUSADE_CLASSIC = 5 (TBC Classic)
-    -- WOW_PROJECT_WRATH_CLASSIC = 11 (Wrath Classic)
-    -- WOW_PROJECT_CATACLYSM_CLASSIC = 14 (Cata Classic)
-    if WOW_PROJECT_ID then
-        return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE
-    end
-    -- Fallback detection if WOW_PROJECT_ID is not available
-    return select(4, GetBuildInfo()) < 90000
-end
-
 -- Pet Quality Border Colors
 local PET_QUALITY_COLORS = {
     [1] = {r = 0.6, g = 0.6, b = 0.6, a = 1},    -- Poor (Gray)
@@ -109,60 +94,6 @@ function PCL_functions:AddPetLevelDisplay(petFrame, speciesID, isCollected)
     elseif petFrame.levelText then
         petFrame.levelText:Hide()
     end
-end
-
--- Function to add breed collection status indicator to pet frames
-function PCL_functions:AddBreedCollectionStatus(petFrame, speciesID, isCollected)
-    if not isCollected or not PCLcore.CollectionComparison then
-        -- Hide any existing breed status indicator
-        if petFrame.breedStatus then
-            petFrame.breedStatus:Hide()
-        end
-        return
-    end
-    
-    -- Get breed comparison data for this species
-    local comparison = PCLcore.CollectionComparison:CompareSpeciesCollection(speciesID)
-    
-    -- Only show breed status for collected pets with multiple available breeds
-    if not comparison.isCollected or comparison.totalAvailableBreeds <= 1 then
-        if petFrame.breedStatus then
-            petFrame.breedStatus:Hide()
-        end
-        return
-    end
-    
-    -- Create breed status indicator if it doesn't exist
-    if not petFrame.breedStatus then
-        petFrame.breedStatus = petFrame:CreateTexture(nil, "OVERLAY")
-        petFrame.breedStatus:SetWidth(12)
-        petFrame.breedStatus:SetHeight(12)
-        petFrame.breedStatus:SetPoint("BOTTOMLEFT", petFrame, "BOTTOMLEFT", 2, 2)
-    end
-    
-    -- Determine status color based on breed completion
-    local ownedBreeds = #comparison.ownedBreeds
-    local totalBreeds = comparison.totalAvailableBreeds
-    local completionRatio = ownedBreeds / totalBreeds
-    
-    if completionRatio >= 1.0 then
-        -- All breeds collected - show green checkmark
-        petFrame.breedStatus:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
-        petFrame.breedStatus:SetVertexColor(0, 1, 0, 1)
-    elseif completionRatio >= 0.5 then
-        -- Partial collection - show yellow warning
-        petFrame.breedStatus:SetTexture("Interface\\RaidFrame\\ReadyCheck-Waiting")
-        petFrame.breedStatus:SetVertexColor(1, 1, 0, 1)
-    else
-        -- Few breeds collected - show red X
-        petFrame.breedStatus:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
-        petFrame.breedStatus:SetVertexColor(1, 0, 0, 1)
-    end
-    
-    petFrame.breedStatus:Show()
-    
-    -- Store breed info for tooltip
-    petFrame.breedComparisonData = comparison
 end
 
 -- Function to check if pet should be filtered by family
@@ -332,601 +263,105 @@ end
 PCLcore.Function.GetMountID = PCLcore.Function.GetPetID
 
 function PCL_functions:resetToDefault(setting)
-    -- If no specific setting provided, reset all to defaults
     if setting == nil then
-        PCL_SETTINGS = {}
-        self:EstablishDefaults()
-        return
+        PCL_SETTINGS = {}        
+        PCL_SETTINGS.unobtainable = false
+        PCL_SETTINGS.hideCollectedMounts = false
+        PCL_SETTINGS.hideCollectedPets = false
     end
-    
-    -- Reset specific settings
-    if setting == "Opacity" then
+    if setting == "Opacity" or setting == nil then
         PCL_SETTINGS.opacity = 0.95
-    elseif setting == "Texture" then
+    end
+    if setting == "Texture" or setting == nil then
         PCL_SETTINGS.statusBarTexture = nil
-    elseif setting == "Colors" then
+    end
+    if setting == "Colors" or setting == nil then
         PCL_SETTINGS.progressColors = {
-            low = { a = 1, r = 0.929, g = 0.007, b = 0.019 },
-            high = { a = 1, r = 0.1, g = 0.9, b = 0.1 },
-            medium = { a = 1, r = 0.941, g = 0.658, b = 0.019 },
-            complete = { a = 1, r = 0, g = 0.5, b = 0.9 }
-        }
-    elseif setting == "BlizzardTheme" then
-        PCL_SETTINGS.useBlizzardTheme = false
-    elseif setting == "PetsPerRow" then
-        PCL_SETTINGS.PetsPerRow = 12
-    elseif setting == "Minimap" then
-        PCL_SETTINGS.minimap = {
-            hide = false,
-            minimapPos = 220,
-            radius = 80
-        }
-    elseif setting == "HideCollectedPets" then
-        PCL_SETTINGS.hideCollectedPets = false
-    elseif setting == "HideCollectedMounts" then
-        PCL_SETTINGS.hideCollectedMounts = false
-    elseif setting == "MountsPerRow" then
-        PCL_SETTINGS.mountsPerRow = 12
-    end
-end
-
--- Initialize DataBroker and LibDBIcon for minimap functionality
-local LDB = LibStub and LibStub("LibDataBroker-1.1", true)
-local LibDBIcon = LibStub and LibStub("LibDBIcon-1.0", true)
-
--- DataBroker object for PCL
-local PCL_LDB = nil
-if LDB then
-    PCL_LDB = LDB:NewDataObject("PCL", {
-        type = "launcher",
-        text = "PCL",
-        icon = "Interface\\AddOns\\PCL\\pcl-logo-32",
-        OnClick = function(self, button)
-            if button == "LeftButton" then
-                if PCL_OnAddonCompartmentClick then
-                    PCL_OnAddonCompartmentClick()
-                end
-            elseif button == "RightButton" then
-                if PCLcore.Frames and PCLcore.Frames.openSettings then
-                    PCLcore.Frames:openSettings()
-                end
-            end
-        end,
-        OnTooltipShow = function(tooltip)
-            if tooltip and tooltip.SetText then
-                tooltip:SetText("Pet Collection Log")
-                tooltip:AddLine("Left-click: Toggle main window")
-                tooltip:AddLine("Right-click: Open settings")
-                tooltip:Show()
-            end
-        end,
-    })
-else
-    -- LibDataBroker-1.1 not found - minimap icon will not be available
-end
-
--- PCL_MM function to toggle minimap icon
-function PCL_functions:PCL_MM()
-    -- Ensure minimap settings exist
-    if not PCL_SETTINGS then
-        PCL_SETTINGS = {}
-    end
-    if not PCL_SETTINGS.minimap then
-        PCL_SETTINGS.minimap = {
-            hide = false,
-            minimapPos = 220,
-            radius = 80
+            low = {
+                ["a"] = 1,
+                ["r"] = 0.929,
+                ["g"] = 0.007,
+                ["b"] = 0.019,
+            },
+            high = {
+                ["a"] = 1,
+                ["r"] = 0.1,
+                ["g"] = 0.9,
+                ["b"] = 0.1,
+            },
+            medium = {
+                ["a"] = 1,
+                ["r"] = 0.941,
+                ["g"] = 0.658,
+                ["b"] = 0.019,
+            },
+            complete = {
+                ["a"] = 1,
+                ["r"] = 0,
+                ["g"] = 0.5,
+                ["b"] = 0.9,
+            },
         }
     end
-    
-    -- Toggle minimap icon visibility
-    PCL_SETTINGS.minimap.hide = not PCL_SETTINGS.minimap.hide
-    if LibDBIcon and PCL_LDB then
-        if PCL_SETTINGS.minimap.hide then
-            LibDBIcon:Hide("PCL")
-            -- Minimap icon hidden
-        else
-            LibDBIcon:Show("PCL")
-            -- Minimap icon shown
-        end
-    else
-        -- Minimap functionality not available (missing LibDBIcon)
-    end
-end
-
--- Make PCL_MM available in the PCLcore.Function namespace
-PCLcore.Function.PCL_MM = PCL_functions.PCL_MM
-
--- Helper function to safely set setting values with change notification
-local function SetSettingValue(settingName, value)
-    local oldValue = PCL_SETTINGS[settingName]
-    if oldValue == value then
-        return  -- No change needed
-    end
-    
-    PCL_SETTINGS[settingName] = value
-    
-    -- Trigger refresh for settings that affect UI layout
-    local layoutAffectingSettings = {
-        "useBlizzardTheme",
-        "PetsPerRow", 
-        "hideCollectedPets"
-    }
-    
-    for _, layoutSetting in ipairs(layoutAffectingSettings) do
-        if settingName == layoutSetting then
-            if PCLcore.Frames and PCLcore.Frames.RefreshLayout then
-                PCLcore.Frames:RefreshLayout()
-            end
-            break
-        end
-    end
-    
-    -- Handle opacity changes
-    if settingName == "opacity" then
-        if PCL_mainFrame and PCL_mainFrame.SetBackdropColor then
-            if PCL_SETTINGS.useBlizzardTheme then
-                PCL_mainFrame:SetBackdropColor(0.05, 0.05, 0.15, value)
-            else
-                PCL_mainFrame:SetBackdropColor(0.08, 0.08, 0.08, value)
-            end
-        end
-    end
-    
-    -- Handle minimap changes
-    if settingName == "minimap" and LibDBIcon and PCL_LDB then
-        if value and value.hide then
-            LibDBIcon:Hide("PCL")
-        else
-            LibDBIcon:Show("PCL")
-        end
-    end
-end
-
--- Establish default settings (based on PetCollector reference structure)
-function PCL_functions:EstablishDefaults()
-    if PCL_SETTINGS == nil then
-        PCL_SETTINGS = {}
-    end
-    
-    -- Core display settings
-    if PCL_SETTINGS.opacity == nil then
-        PCL_SETTINGS.opacity = 0.95
-    end
-    if PCL_SETTINGS.useBlizzardTheme == nil then
-        PCL_SETTINGS.useBlizzardTheme = false
-    end
-    
-    -- Pet display settings
-    if PCL_SETTINGS.PetsPerRow == nil then
-        PCL_SETTINGS.PetsPerRow = 12
-    end
-    if PCL_SETTINGS.hideCollectedPets == nil then
-        PCL_SETTINGS.hideCollectedPets = false
-    end
-    
-    -- Minimap settings
-    if PCL_SETTINGS.minimap == nil then
-        PCL_SETTINGS.minimap = {
-            hide = false,
-            minimapPos = 220,
-            radius = 80
-        }
-    end
-    
-    -- Progress bar colors
-    if PCL_SETTINGS.progressColors == nil then
-        PCL_SETTINGS.progressColors = {
-            low = { a = 1, r = 0.929, g = 0.007, b = 0.019 },
-            high = { a = 1, r = 0.1, g = 0.9, b = 0.1 },
-            medium = { a = 1, r = 0.941, g = 0.658, b = 0.019 },
-            complete = { a = 1, r = 0, g = 0.5, b = 0.9 }
-        }
-    end
-    
-    -- Status bar texture
-    if PCL_SETTINGS.statusBarTexture == nil then
-        -- Set a reasonable default texture
-        if PCLcore.media then
-            -- Try to get the first available texture from LibSharedMedia
-            local textures = PCLcore.media:HashTable("statusbar")
-            if textures then
-                for textureName, texturePath in pairs(textures) do
-                    PCL_SETTINGS.statusBarTexture = textureName
-                    break
-                end
-            end
-        end
-        -- If still nil, it will use the default fallback in the progressBar function
-    end
-    
-    -- Legacy mount settings (kept for compatibility during transition)
-    if PCL_SETTINGS.hideCollectedMounts == nil then
+    if setting == "HideCollectedMounts" or setting == nil then
         PCL_SETTINGS.hideCollectedMounts = false
     end
-    if PCL_SETTINGS.mountsPerRow == nil then
+    if setting == "HideCollectedPets" or setting == nil then
+        PCL_SETTINGS.hideCollectedPets = false
+    end
+    if setting == "BlizzardTheme" or setting == nil then
+        PCL_SETTINGS.useBlizzardTheme = false
+    end
+    if setting == "MountsPerRow" or setting == nil then
         PCL_SETTINGS.mountsPerRow = 12
+    end
+    if setting == "PetsPerRow" or setting == nil then
+        PCL_SETTINGS.PetsPerRow = 12
+    end
+    if setting == "ShowPetQuality" or setting == nil then
+        PCL_SETTINGS.showPetQuality = true
+    end
+    if setting == "ShowPetLevel" or setting == nil then
+        PCL_SETTINGS.showPetLevel = false
+    end
+    if setting == "FilterByFamily" or setting == nil then
+        PCL_SETTINGS.filterByFamily = false
+    end
+    if setting == "ShowOnlyRare" or setting == nil then
+        PCL_SETTINGS.showOnlyRare = false
     end
 end
 
--- Initialize settings on addon load
 if PCL_SETTINGS == nil then
-    PCL_functions:EstablishDefaults()
-else
-    -- Ensure all defaults exist for existing users
-    PCL_functions:EstablishDefaults()
+    PCLcore.Function:resetToDefault()
 end
 
--- Settings registration function
-function PCL_functions:AddonSettings()
-    -- Initialize settings using the structured approach
-    self:EstablishDefaults()
-    
-    -- Register minimap icon
-    if LibDBIcon and PCL_LDB then
-        LibDBIcon:Register("PCL", PCL_LDB, PCL_SETTINGS.minimap)
-        if not PCL_SETTINGS.minimap.hide then
-            LibDBIcon:Show("PCL")
-        end
-    end
-    
-    -- Use AceConfig-3.0 for settings (like MCL does)
-    local AceConfig = LibStub("AceConfig-3.0");
-    local media = LibStub("LibSharedMedia-3.0")
-    if not media then
-        -- LibSharedMedia-3.0 not found - using default textures
-    end
-    
-    local options = {
-        type = "group",
-        name = "Pet Collection Log Settings",
-        order = 1,
-        args = {
-            headerone = {             
-                order = 1,
-                name = "Main Window Options",
-                type = "header",
-                width = "full",
-            },            
-            mainWindow = {             
-                order = 2,
-                name = "Main Window Opacity",
-                desc = "Changes the opacity of the main window",
-                type = "range",
-                width = "normal",
-                min = 0.3,
-                max = 1,
-                softMin = 0.3,
-                softMax = 1,
-                bigStep = 0.05,
-                isPercent = false,
-                set = function(info, val) 
-                    PCL_SETTINGS.opacity = val
-                    -- Apply opacity change immediately
-                    if PCL_mainFrame and PCL_mainFrame.SetBackdropColor then
-                        if PCL_SETTINGS.useBlizzardTheme then
-                            PCL_mainFrame:SetBackdropColor(0.05, 0.05, 0.15, val)
-                        else
-                            PCL_mainFrame:SetBackdropColor(0.08, 0.08, 0.08, val)
-                        end
-                    end
-                end,
-                get = function(info) return PCL_SETTINGS.opacity; end,
-            },
-            spacer1 = {
-                order = 2.5,
-                cmdHidden = true,
-                name = "",
-                type = "description",
-                width = "half",
-            },
-            defaultOpacity = {
-                order = 3,
-                name = "Reset Opacity",
-                desc = "Reset to default opacity",
-                width = "normal",
-                type = "execute",
-                func = function()
-                    PCL_functions:resetToDefault("Opacity")
-                    -- Apply opacity change immediately
-                    if PCL_mainFrame and PCL_mainFrame.SetBackdropColor then
-                        if PCL_SETTINGS.useBlizzardTheme then
-                            PCL_mainFrame:SetBackdropColor(0.05, 0.05, 0.15, PCL_SETTINGS.opacity)
-                        else
-                            PCL_mainFrame:SetBackdropColor(0.08, 0.08, 0.08, PCL_SETTINGS.opacity)
-                        end
-                    end
-                end
-            },              
-            headertwo = {             
-                order = 4,
-                name = "Progress Bar Settings",
-                type = "header",
-                width = "full",
-            },             
-            texture = {              
-                order = 5,
-                type = "select",
-                name = "Statusbar Texture",
-                width = "normal",
-                desc = "Set the statusbar texture.",
-                values = media and media:HashTable("statusbar") or {["Interface\\TargetingFrame\\UI-StatusBar"] = "Default"},
-                set = function(info, val) 
-                    PCL_SETTINGS.statusBarTexture = val
-                    -- Update all existing status bars with the new texture
-                    if PCLcore.Function and PCLcore.Function.UpdateAllStatusBarTextures then
-                        PCLcore.Function:UpdateAllStatusBarTextures()
-                    end
-                end,
-                get = function(info) return PCL_SETTINGS.statusBarTexture; end,
-                style = "dropdown",
-            },
-            spacer2 = {
-                order = 5.5,
-                cmdHidden = true,
-                name = "",
-                type = "description",
-                width = "half",
-            },            
-            defaultTexture = {
-                order = 6,
-                name = "Reset Texture",
-                desc = "Reset to default texture",
-                width = "normal",
-                type = "execute",
-                func = function()
-                    PCL_functions:resetToDefault("Texture")
-                    -- Update all existing status bars with the reset texture
-                    if PCLcore.Function and PCLcore.Function.UpdateAllStatusBarTextures then
-                        PCLcore.Function:UpdateAllStatusBarTextures()
-                    end
-                end
-            },
-            spacer3 = {
-                order = 6.5,
-                cmdHidden = true,
-                name = "",
-                type = "description",
-                width = "full",
-            },                              
-            progressColorLow = {
-                order = 7,
-                type = "color",
-                name = "Progress Bar (<33%)",
-                width = "normal",
-                desc = "Set the progress bar colors to be shown when the percentage collected is below 33%",
-                set = function(info, r, g, b) 
-                    PCL_SETTINGS.progressColors.low.r = r
-                    PCL_SETTINGS.progressColors.low.g = g
-                    PCL_SETTINGS.progressColors.low.b = b
-                end,
-                get = function(info) return PCL_SETTINGS.progressColors.low.r, PCL_SETTINGS.progressColors.low.g, PCL_SETTINGS.progressColors.low.b; end,                
-            },
-            spacer4 = {
-                order = 7.5,
-                cmdHidden = true,
-                name = "",
-                type = "description",
-                width = "half",
-            },            
-            progressColorMedium = {
-                order = 8,
-                type = "color",
-                name = "Progress Bar (<66%)",
-                width = "normal",
-                desc = "Set the progress bar colors to be shown when the percentage collected is below 66%",
-                set = function(info, r, g, b) 
-                    PCL_SETTINGS.progressColors.medium.r = r
-                    PCL_SETTINGS.progressColors.medium.g = g
-                    PCL_SETTINGS.progressColors.medium.b = b
-                end,
-                get = function(info) return PCL_SETTINGS.progressColors.medium.r, PCL_SETTINGS.progressColors.medium.g, PCL_SETTINGS.progressColors.medium.b; end,                
-            },
-            spacer5 = {
-                order = 8.5,
-                cmdHidden = true,
-                name = "",
-                type = "description",
-                width = "half",
-            },             
-            progressColorHigh = {
-                order = 9,
-                type = "color",
-                name = "Progress Bar (<100%)",
-                width = "normal",
-                desc = "Set the progress bar colors to be shown when the percentage collected is below 100%",
-                set = function(info, r, g, b) 
-                    PCL_SETTINGS.progressColors.high.r = r
-                    PCL_SETTINGS.progressColors.high.g = g
-                    PCL_SETTINGS.progressColors.high.b = b
-                end,
-                get = function(info) return PCL_SETTINGS.progressColors.high.r, PCL_SETTINGS.progressColors.high.g, PCL_SETTINGS.progressColors.high.b; end,                
-            },
-            spacer6 = {
-                order = 9.5,
-                cmdHidden = true,
-                name = "",
-                type = "description",
-                width = "half",
-            },             
-            progressColorComplete = {
-                order = 10,
-                type = "color",
-                name = "Progress Bar (100%)",
-                width = "normal",
-                desc = "Set the progress bar colors to be shown when all pets are collected",
-                set = function(info, r, g, b) 
-                    PCL_SETTINGS.progressColors.complete.r = r
-                    PCL_SETTINGS.progressColors.complete.g = g
-                    PCL_SETTINGS.progressColors.complete.b = b
-                end,
-                get = function(info) return PCL_SETTINGS.progressColors.complete.r, PCL_SETTINGS.progressColors.complete.g, PCL_SETTINGS.progressColors.complete.b; end,                
-            },
-            defaultColor = {
-                order = 11,
-                name = "Reset Colors",
-                desc = "Reset to default colors",
-                width = "normal",
-                type = "execute",
-                func = function()
-                    PCL_functions:resetToDefault("Colors")
-                end
-            },              
-            headerthree = {             
-                order = 12,
-                name = "Layout Settings",
-                type = "header",
-                width = "full",
-            },
-            petsPerRow = {
-                order = 12.5,
-                name = "Pets Per Row",
-                desc = "Set the number of pets to display per row in the pet grid.",
-                type = "range",
-                width = "normal",
-                min = 6,
-                max = 24,
-                softMin = 6,
-                softMax = 24,
-                step = 1,
-                bigStep = 1,
-                set = function(info, val)
-                    PCL_SETTINGS.PetsPerRow = val
-                    -- Trigger layout refresh to update the pet grid immediately
-                    if PCLcore.Frames and PCLcore.Frames.RefreshLayout then
-                        PCLcore.Frames:RefreshLayout()
-                        -- Updated pets per row - layout refreshed
-                    else
-                        -- Updated pets per row - please reload UI to see changes
-                    end
-                end,
-                get = function(info) return PCL_SETTINGS.PetsPerRow; end,
-            },
-            headerfour = {             
-                order = 13,
-                name = "Display Settings",
-                type = "header",
-                width = "full",
-            },            
-            hideCollectedPets = {
-                order = 14,
-                name = "Hide Collected Pets",
-                desc = "If enabled, collected pets will not be shown in the list at all.",
-                type = "toggle",
-                width = "full",
-                set = function(info, val)
-                    PCL_SETTINGS.hideCollectedPets = val
-                    -- Trigger layout refresh since this affects which pets are displayed
-                    if PCLcore.Frames and PCLcore.Frames.RefreshLayout then
-                        PCLcore.Frames:RefreshLayout()
-                    end
-                end,
-                get = function(info) return PCL_SETTINGS.hideCollectedPets; end,
-            },
-            useBlizzardTheme = {
-                order = 14.5,
-                name = "Use Blizzard Theme",
-                desc = "If enabled, the addon will use Blizzard's default UI theme.",
-                type = "toggle",
-                width = "full",
-                set = function(info, val)
-                    PCL_SETTINGS.useBlizzardTheme = val
-                    -- Trigger layout refresh since this affects the entire UI appearance
-                    if PCLcore.Frames and PCLcore.Frames.RefreshLayout then
-                        PCLcore.Frames:RefreshLayout()
-                    end
-                end,
-                get = function(info) return PCL_SETTINGS.useBlizzardTheme; end,
-            },
-            minimapIconToggle = {
-                order = 14.6,
-                name = "Show Minimap Icon",
-                desc = "Toggle the display of the Minimap Icon.",
-                type = "toggle",
-                width = "full",
-                set = function(info, val)
-                    if not PCL_SETTINGS.minimap then
-                        PCL_SETTINGS.minimap = {
-                            hide = false,
-                            minimapPos = 220,
-                            radius = 80
-                        }
-                    end
-                    PCL_SETTINGS.minimap.hide = not val
-                    if LibDBIcon and PCL_LDB then
-                        if val then
-                            LibDBIcon:Show("PCL")
-                        else
-                            LibDBIcon:Hide("PCL")
-                        end
-                    end
-                end,
-                get = function(info)
-                    return not (PCL_SETTINGS.minimap and PCL_SETTINGS.minimap.hide)
-                end,
-            },
-            headerfive = {             
-                order = 15,
-                name = "Reset Settings",
-                type = "header",
-                width = "full",
-            },             
-            defaults = {
-                order = 16,
-                name = "Reset Settings",
-                desc = "Reset to default settings",
-                width = "normal",
-                type = "execute",
-                func = function()
-                    PCL_functions:resetToDefault(nil)
-                end
-            }                                                                                                       
-        }
-    }
-
-    -- Register the options table and add to Blizzard options (like MCL does)
-    AceConfig:RegisterOptionsTable(PCLcore.addon_name, options, {});
-    PCLcore.AceConfigDialog = LibStub("AceConfigDialog-3.0");
-    PCLcore.AceConfigDialog:AddToBlizOptions(PCLcore.addon_name, PCLcore.addon_name, nil);
+-- Ensure mountsPerRow setting exists for existing users
+if PCL_SETTINGS.mountsPerRow == nil then
+    PCL_SETTINGS.mountsPerRow = 12
 end
 
--- Make AddonSettings available in the PCLcore.Function namespace
-PCLcore.Function.AddonSettings = PCL_functions.AddonSettings
-PCLcore.Function.EstablishDefaults = PCL_functions.EstablishDefaults
-
--- Function to update all existing status bar textures
-function PCL_functions:UpdateAllStatusBarTextures()
-    if not PCLcore.statusBarFrames then
-        -- No status bar frames to update
-        return
-    end
-    
-    -- Determine the texture to use
-    local textureToUse = "Interface\\TargetingFrame\\UI-StatusBar"  -- Default fallback
-    local textureName = "Default"
-    
-    if PCLcore.media and PCL_SETTINGS.statusBarTexture then
-        local texture = PCLcore.media:Fetch("statusbar", PCL_SETTINGS.statusBarTexture)
-        if texture then
-            textureToUse = texture
-            textureName = PCL_SETTINGS.statusBarTexture
-        end
-    end
-    
-    -- Update all tracked status bars
-    local updatedCount = 0
-    for i, statusBar in ipairs(PCLcore.statusBarFrames) do
-        if statusBar and statusBar.SetStatusBarTexture then
-            statusBar:SetStatusBarTexture(textureToUse)
-            updatedCount = updatedCount + 1
-        end
-    end
-    
-    -- Updated status bars with texture
+-- Ensure PetsPerRow setting exists for existing users
+if PCL_SETTINGS.PetsPerRow == nil then
+    PCL_SETTINGS.PetsPerRow = 12
 end
 
--- Make UpdateAllStatusBarTextures available in the PCLcore.Function namespace
-PCLcore.Function.UpdateAllStatusBarTextures = PCL_functions.UpdateAllStatusBarTextures
+-- Ensure new pet-specific settings exist for existing users
+if PCL_SETTINGS.showPetQuality == nil then
+    PCL_SETTINGS.showPetQuality = true
+end
+
+if PCL_SETTINGS.showPetLevel == nil then
+    PCL_SETTINGS.showPetLevel = false
+end
+
+if PCL_SETTINGS.filterByFamily == nil then
+    PCL_SETTINGS.filterByFamily = false
+end
+
+if PCL_SETTINGS.showOnlyRare == nil then
+    PCL_SETTINGS.showOnlyRare = false
+end
 
 -- Tables Mounts into Global List
 function PCL_functions:TableMounts(id, frame, section, category)
@@ -1058,16 +493,12 @@ function PCL_functions:initSections()
     -- * --------------------------------
 
     local faction = PCL_functions:getFaction()
-    local isClassic = PCL_functions:IsClassicWoW()
     PCLcore.sections = {}
 
     for i, v in ipairs(PCLcore.sectionNames) do
         -- Skip opposite faction section
         if v.name ~= faction then
-            -- Skip sections not compatible with Classic if we're on Classic
-            if not isClassic or v.includeInClassic ~= false then
-                table.insert(PCLcore.sections, v)
-            end
+            table.insert(PCLcore.sections, v)
         end
     end
 
@@ -1275,7 +706,7 @@ function PCL_functions:SetPetClickFunctionalityPin(frame, petSpeciesID, petName,
                 table.remove(PCL_PINNED, k)
                 frame.pin:SetAlpha(0)
                 frame:Hide()
-                -- Pet unpinned
+                print("|cffFF0000Pet unpinned: |r" .. (displayName or petName or "Unknown Pet"))
                 PCLcore.stats["Pinned"].total = PCLcore.Function:getTableLength(PCL_PINNED)
                 PCLcore.RefreshUIFrames()  
             else
@@ -1286,7 +717,7 @@ function PCL_functions:SetPetClickFunctionalityPin(frame, petSpeciesID, petName,
                     section = frame.section
                 })
                 frame.pin:SetAlpha(1)
-                -- Pet pinned
+                print("|cff00FF00Pet pinned: |r" .. (displayName or petName or "Unknown Pet"))
                 PCLcore.stats["Pinned"].total = PCLcore.Function:getTableLength(PCL_PINNED)
                 PCLcore.RefreshUIFrames()
             end
@@ -1296,31 +727,6 @@ function PCL_functions:SetPetClickFunctionalityPin(frame, petSpeciesID, petName,
                 local petLink = C_PetJournal.GetBattlePetLink(petSpeciesID)
                 if petLink and ChatEdit_GetActiveWindow() then
                     ChatEdit_InsertLink(petLink)
-                end
-            elseif IsAltKeyDown() then
-                -- Alt+Left-click - Pin the detailed PetCard
-                -- Alt+Left-click detected for pet species
-                if PCLcore.PetCard and PCLcore.PetCard.PinFromHover then
-                    -- Calling PinFromHover
-                    PCLcore.PetCard:PinFromHover(petSpeciesID, frame)
-                else
-                    -- PetCard or PinFromHover not available
-                end
-            else
-                -- Normal left-click for pin functionality could summon pet if desired
-                if IsPetCollected(tonumber(petSpeciesID)) then
-                    -- Get the first owned pet of this species
-                    local petGUID = nil
-                    for i = 1, C_PetJournal.GetNumPets() do
-                        local guid, speciesID, owned = C_PetJournal.GetPetInfoByIndex(i)
-                        if owned and speciesID == tonumber(petSpeciesID) then
-                            petGUID = guid
-                            break
-                        end
-                    end
-                    if petGUID then
-                        C_PetJournal.SummonPetByGUID(petGUID)
-                    end
                 end
             end
         end
@@ -1337,7 +743,7 @@ function PCL_functions:SetPetClickFunctionality(frame, petSpeciesID, petName, it
                     -- Remove from pinned
                     table.remove(PCL_PINNED, k)
                     frame.pin:SetAlpha(0)
-                    -- Pet unpinned
+                    print("|cffFF0000Pet unpinned: |r" .. (displayName or petName or "Unknown Pet"))
                     PCLcore.stats["Pinned"].total = PCLcore.Function:getTableLength(PCL_PINNED)
                     PCLcore.RefreshUIFrames()
                 else
@@ -1348,7 +754,7 @@ function PCL_functions:SetPetClickFunctionality(frame, petSpeciesID, petName, it
                         section = frame.section
                     })
                     frame.pin:SetAlpha(1)
-                    -- Pet pinned
+                    print("|cff00FF00Pet pinned: |r" .. (displayName or petName or "Unknown Pet"))
                     PCLcore.stats["Pinned"].total = PCLcore.Function:getTableLength(PCL_PINNED)
                     PCLcore.RefreshUIFrames()
                 end
@@ -1364,15 +770,6 @@ function PCL_functions:SetPetClickFunctionality(frame, petSpeciesID, petName, it
                 local petLink = C_PetJournal.GetBattlePetLink(petSpeciesID)
                 if petLink and ChatEdit_GetActiveWindow() then
                     ChatEdit_InsertLink(petLink)
-                end
-            elseif IsAltKeyDown() then
-                -- Alt+Left-click - Pin the detailed PetCard
-                -- Alt+Left-click detected for pet species (non-pin)
-                if PCLcore.PetCard and PCLcore.PetCard.PinFromHover then
-                    -- Calling PinFromHover from non-pin function
-                    PCLcore.PetCard:PinFromHover(petSpeciesID, frame)
-                else
-                    -- PetCard or PinFromHover not available from non-pin function
                 end
             else
                 -- Normal left-click - attempt to summon specific pet if collected
@@ -1671,17 +1068,17 @@ function PCL_functions:LinkPetItem(id, frame, pin)
         -- Ensure the frame can receive mouse events
         frame:EnableMouse(true)
         
-        -- Add hover functionality for pet preview using embedded PetCard
+        -- Add hover functionality for pet preview
         frame:SetScript("OnEnter", function(self)
-            if PCLcore.PetCard and PCLcore.PetCard.Show then
-                -- Create pet data object for the embedded pet card
-                local petData = { speciesID = petSpeciesID }
-                PCLcore.PetCard:Show(petData)
+            if PCLcore.Function.ShowPetPreview then
+                PCLcore.Function:ShowPetPreview(petSpeciesID, self)
             end
         end)
         
         frame:SetScript("OnLeave", function(self)
-            -- Pet card will remain open when mouse leaves the pet frame
+            if PCLcore.Function.HidePetPreview then
+                PCLcore.Function:HidePetPreview()
+            end
         end)
         
         -- Add click functionality
@@ -2051,18 +1448,13 @@ function PCL_functions:CreatePetsForCategory(petData, parentFrame, yOffset, tabF
                     if shouldFilterByFamily or shouldFilterByQuality then
                         -- Skip this pet due to filtering
                     else
-                        -- Get pet info first to check if pet exists
-                        local petName, icon, petType, companionID, tooltipSource, tooltipDescription, isWild, canBattle, isTradeable, isUnique, obtainable = C_PetJournal.GetPetInfoBySpeciesID(petSpeciesID)
-                        
-                        -- Only create frame if pet exists
-                        if petName then
-                            -- Calculate position
-                            local col = currentIndex % petsPerRow
-                            local row = math.floor(currentIndex / petsPerRow)
-                            local x = currentX + col * (petSize + spacing)
-                            local y = currentY - row * (petSize + spacing + 5)  -- Extra spacing between rows
-                            
-                            -- Create pet frame only if pet exists
+                    -- Calculate position
+                    local col = currentIndex % petsPerRow
+                    local row = math.floor(currentIndex / petsPerRow)
+                    local x = currentX + col * (petSize + spacing)
+                    local y = currentY - row * (petSize + spacing + 5)  -- Extra spacing between rows
+                    
+                    -- Create pet frame
                     local petFrame = CreateFrame("Button", nil, parentFrame, "BackdropTemplate")
                     petFrame:SetSize(petSize, petSize)
                     petFrame:SetPoint("TOPLEFT", parentFrame, "TOPLEFT", x, y)
@@ -2073,6 +1465,9 @@ function PCL_functions:CreatePetsForCategory(petData, parentFrame, yOffset, tabF
                         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
                         edgeSize = 2
                     })
+                    
+                    -- Get pet info
+                    local petName, icon, petType, companionID, tooltipSource, tooltipDescription, isWild, canBattle, isTradeable, isUnique, obtainable = C_PetJournal.GetPetInfoBySpeciesID(petSpeciesID)
                     
                     if icon then
                         -- Create icon texture
@@ -2120,11 +1515,6 @@ function PCL_functions:CreatePetsForCategory(petData, parentFrame, yOffset, tabF
                             PCLcore.Function:AddPetLevelDisplay(petFrame, petSpeciesID, isCollected)
                         end
                         
-                        -- Add breed collection status indicator
-                        if PCLcore.Function.AddBreedCollectionStatus then
-                            PCLcore.Function:AddBreedCollectionStatus(petFrame, petSpeciesID, isCollected)
-                        end
-                        
                         -- Add click functionality for pinned pets (can unpin)
                         if PCLcore.Function.SetPetClickFunctionalityPin then
                             PCLcore.Function:SetPetClickFunctionalityPin(petFrame, petSpeciesID, petName, nil, nil)
@@ -2143,12 +1533,11 @@ function PCL_functions:CreatePetsForCategory(petData, parentFrame, yOffset, tabF
                         
                         table.insert(petFrames, petFrame)
                         currentIndex = currentIndex + 1
-                        end -- Close if petName (pet exists)
-                    end -- Close else (not filtered)
-                end -- Close if petSpeciesID
-            end -- Close if pet and pet.petID
-        end -- Close for i, pet in ipairs(petData)
-    end -- Close if type(petData) == "table"
+                    end
+                end
+            end
+            end
+        end
     end
     
     return false, petFrames  -- First return value indicates overflow (false for now)
@@ -2161,10 +1550,8 @@ PCLcore.Function.CalculateSectionStats = PCL_functions.CalculateSectionStats
 PCLcore.Function.GetPetQuality = PCL_functions.GetPetQuality
 PCLcore.Function.ApplyPetQualityBorder = PCL_functions.ApplyPetQualityBorder
 PCLcore.Function.AddPetLevelDisplay = PCL_functions.AddPetLevelDisplay
-PCLcore.Function.AddBreedCollectionStatus = PCL_functions.AddBreedCollectionStatus
 PCLcore.Function.ShouldFilterPetByFamily = PCL_functions.ShouldFilterPetByFamily
 PCLcore.Function.ShouldFilterPetByQuality = PCL_functions.ShouldFilterPetByQuality
-PCLcore.Function.CreateFullBorder = PCL_functions.CreateFullBorder
 
 -- Ensure the LinkPetItem function is properly exposed
 -- This is needed because frames.lua checks for PCLcore.Function.LinkPetItem

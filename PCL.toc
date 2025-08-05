@@ -5,7 +5,7 @@
 ## Title-zhTW: |cFF1FB7EBPCL |cFFFFFFFF- 寵物收集日誌
 ## Notes: A tool used to log collected battle pets in a similiar way to Simple Armory. Now with live Simple Armory data!
 ## Notes-zhTW: 一個用於記錄戰寵收集的工具，類似於Simple Armory。
-## Version: 1.1
+## Version: 1.2
 ## DefaultState: enabled
 ## LoadWith: Blizzard_Collections
 ## SavedVariables: PCL_DB, PETLIST, PCL_PINNED, PCL_SETTINGS

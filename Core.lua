@@ -10,16 +10,6 @@ local function InitializeLibSharedMedia()
     end
 end
 
--- Initialize DataBroker and minimap functionality when addon loads
-local function InitializeMinimapIcon()
-    -- This will be called from main.lua after settings are initialized
-    if PCLcore.Function and PCLcore.Function.AddonSettings then
-        -- Settings initialization will handle minimap icon registration
-        return true
-    end
-    return false
-end
-
 -- Initialize search functionality when the addon loads
 local function InitializeSearch()
     if not PCLcore.Search then
@@ -49,38 +39,27 @@ local function InitializeSearch()
             self.isSearchActive = true
             self.searchResults = {}
             
-            local isClassic = PCLcore.Function:IsClassicWoW()
-            
             -- Search through all pets in all sections
             for sectionIndex, section in ipairs(PCLcore.sectionNames) do
-                -- Skip sections not compatible with Classic if we're on Classic
-                if isClassic and section.includeInClassic == false then
-                    -- skip sections not available in Classic
-                else
-                    -- Check if section has pets data
-                    if section.pets and section.pets.categories then
-                        local categories = section.pets.categories
-                        if categories then
-                            for categoryName, categoryData in pairs(categories) do
-                                if type(categoryData) == "table" and categoryData.pets then
-                                    -- Use the pets array from the category data
-                                    local petList = categoryData.pets or {}
-                                    
-                                    for _, petId in ipairs(petList) do
-                                        local pet_Id = PCLcore.Function:GetPetID(petId)
-                                        if pet_Id then
-                                            local petName, icon, petType, companionID, tooltipSource, tooltipDescription, isWild, canBattle, isTradeable, isUnique, obtainable = C_PetJournal.GetPetInfoBySpeciesID(pet_Id)
-                                            
-                                            -- Skip pets that don't exist (return nil from GetPetInfoBySpeciesID)
-                                            if not petName then
-                                                -- Pet doesn't exist in this version of WoW, skip it
-                                            else
-                                                local isCollected = IsPetCollected(pet_Id)
-                                            
-                                                -- Skip collected pets if the setting is enabled
-                                                if PCL_SETTINGS.hideCollectedPets and isCollected then
-                                                    -- Skip this pet entirely
-                                                else
+                -- Check if section has pets data
+                if section.pets and section.pets.categories then
+                    local categories = section.pets.categories
+                    if categories then
+                        for categoryName, categoryData in pairs(categories) do
+                            if type(categoryData) == "table" and categoryData.pets then
+                                -- Use the pets array from the category data
+                                local petList = categoryData.pets or {}
+                                
+                                for _, petId in ipairs(petList) do
+                                    local pet_Id = PCLcore.Function:GetPetID(petId)
+                                    if pet_Id then
+                                        local petName, icon, petType, companionID, tooltipSource, tooltipDescription, isWild, canBattle, isTradeable, isUnique, obtainable = C_PetJournal.GetPetInfoBySpeciesID(pet_Id)
+                                        local isCollected = IsPetCollected(pet_Id)
+                                        
+                                        -- Skip collected pets if the setting is enabled
+                                        if PCL_SETTINGS.hideCollectedPets and isCollected then
+                                            -- Skip this pet entirely
+                                        else
                                             -- Search both pet name and item name (if applicable)
                                             local matchFound = false
                                             local matchedName = nil
@@ -120,8 +99,6 @@ local function InitializeSearch()
                         end
                     end
                 end
-                end
-            end
             end
             
             -- Display search results
@@ -379,18 +356,11 @@ local function InitializeSearch()
             local PetSize = math.floor(availableForPets / PetsPerRow)
             
             -- If Pet size is too small, reduce Pets per row until we get acceptable size
-            local originalPetsPerRow = PetsPerRow
             while PetSize < minPetSize and PetsPerRow > 6 do
                 PetsPerRow = PetsPerRow - 1
                 totalSpacingWidth = desiredSpacing * (PetsPerRow - 1)
                 availableForPets = availableWidth - totalSpacingWidth
                 PetSize = math.floor(availableForPets / PetsPerRow)
-            end
-            
-            -- If we had to reduce pets per row due to space constraints, inform the user
-            if PetsPerRow < originalPetsPerRow then
-                print(string.format("|cff00ff00PCL:|r Pets per row reduced from %d to %d due to screen space limitations. Each pet needs at least %dpx.", originalPetsPerRow, PetsPerRow, minPetSize))
-                -- Note: We don't update the saved setting - this is a display-only adjustment
             end
             
             -- Ensure Pet size is within bounds
@@ -767,7 +737,6 @@ end
 PCLcore = PCLcore or {}
 PCLcore.InitializeSearch = InitializeSearch
 PCLcore.InitializeLibSharedMedia = InitializeLibSharedMedia
-PCLcore.InitializeMinimapIcon = InitializeMinimapIcon
 
 -- Namespace
 -------------------------------------------------------------
@@ -777,21 +746,12 @@ SLASH_PCL1 = "/PCL";
 SlashCmdList["PCL"] = function(msg)
     if msg:lower() == "help" then
         print(PCLcore.L["|cff00CCFFPet Collection Log Commands:\n|cffFF0000Show:|cffFFFFFF Shows your Pet collection log\n|cffFF0000Icon:|cffFFFFFF Toggles the minimap icon\n|cffFF0000Config:|cffFFFFFF Opens the settings\n|cffFF0000Help:|cffFFFFFF Shows commands"])
-        print("|cffFF0000Notification Commands:|r")
-        print("|cffFFFFFF/pcl resetnotify|r - Reset notification status")
-        print("|cffFFFFFF/pcl testwelcome|r - Show welcome notification")
-        print("|cffFFFFFF/pcl testupdate|r - Show update notification")
-        print("|cffFFFFFF/pcl checknotify|r - Check for notifications now")
     end
     if msg:lower() == "show" then
         PCLcore.Main.Toggle();
     end
     if msg:lower() == "icon" then
-        if PCLcore.Function and PCLcore.Function.PCL_MM then
-            PCLcore.Function:PCL_MM();
-        else
-            print("|cffFF0000PCL:|r Minimap functionality not available yet. Please reload your UI.")
-        end
+        PCLcore.Function.PCL_MM();
     end        
     if msg:lower() == "" then
         PCLcore.Main.Toggle();
@@ -814,39 +774,5 @@ SlashCmdList["PCL"] = function(msg)
         local numPets, numOwned = C_PetJournal.GetNumPets()
         print("- Pet Journal - Total pets:", numPets, "Owned:", numOwned)
         print("- Collections addon loaded:", C_AddOns.IsAddOnLoaded("Blizzard_Collections"))
-        print("- Minimap icon hidden:", PCL_SETTINGS.minimap and PCL_SETTINGS.minimap.hide or "Unknown")
-    end
-    -- Notification commands
-    if msg:lower() == "resetnotify" then
-        local notifications = (PCL and PCL.Notifications) or (PCLcore and PCLcore.Notifications)
-        if notifications and notifications.ResetNotificationStatus then
-            notifications:ResetNotificationStatus()
-        else
-            print("|cffFF0000PCL:|r Notification system not available yet. Try reloading your UI (/reload).")
-        end
-    end
-    if msg:lower() == "testwelcome" then
-        local notifications = (PCL and PCL.Notifications) or (PCLcore and PCLcore.Notifications)
-        if notifications and notifications.ForceShowNotification then
-            notifications:ForceShowNotification("welcome")
-        else
-            print("|cffFF0000PCL:|r Notification system not available yet. Try reloading your UI (/reload).")
-        end
-    end
-    if msg:lower() == "testupdate" then
-        local notifications = (PCL and PCL.Notifications) or (PCLcore and PCLcore.Notifications)
-        if notifications and notifications.ForceShowNotification then
-            notifications:ForceShowNotification("update")
-        else
-            print("|cffFF0000PCL:|r Notification system not available yet. Try reloading your UI (/reload).")
-        end
-    end
-    if msg:lower() == "checknotify" then
-        local notifications = (PCL and PCL.Notifications) or (PCLcore and PCLcore.Notifications)
-        if notifications and notifications.TriggerCheck then
-            notifications:TriggerCheck()
-        else
-            print("|cffFF0000PCL:|r Notification system not available yet. Try reloading your UI (/reload).")
-        end
     end
  end
