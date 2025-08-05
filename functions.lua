@@ -163,6 +163,13 @@ function PCL_functions:getFaction()
 	end
 end
 
+function PCL_functions:IsClassicWoW()
+    -- * --------------------------------
+    -- * Check if the current WoW version is Classic
+    -- * --------------------------------
+    return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE
+end
+
 -- local function IsMountFactionSpecific(id)
 --     if string.sub(id, 1, 1) == "m" then
 --         mount_Id = string.sub(id, 2, -1)
