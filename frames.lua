@@ -10,8 +10,9 @@ PCLcore.statusBarFrames  = {}
 
 PCLcore.nav_width = 180
 local nav_width = PCLcore.nav_width
-local main_frame_width = 400
-local main_frame_height = 500
+-- Updated default main frame size (content area wider)
+local main_frame_width = 800  -- default width
+local main_frame_height = 600 -- default height
 
 local r,g,b,a
 
@@ -70,11 +71,31 @@ end
 -- Function to update progress bar colors based on collection percentage
 local function UpdateProgressBar(pBar, totalItems, collectedItems)
     if not pBar or not totalItems or not collectedItems then
+        if PCL_SETTINGS and PCL_SETTINGS.debug then
+            print("UpdateProgressBar: Missing parameters", pBar and "pBar OK" or "pBar missing", totalItems and ("total=" .. totalItems) or "total missing", collectedItems and ("collected=" .. collectedItems) or "collected missing")
+        end
         return
     end
     
+    -- Ensure the progress bar has proper min/max values
+    pBar:SetMinMaxValues(0, 100)
+    
     if totalItems > 0 then
         local percentage = (collectedItems / totalItems) * 100
+        
+        if PCL_SETTINGS and PCL_SETTINGS.debug then
+            print("UpdateProgressBar: Setting progress bar", "total=" .. totalItems, "collected=" .. collectedItems, "percentage=" .. math.floor(percentage))
+            print("  - Before SetValue: current value =", pBar:GetValue(), "min/max =", pBar:GetMinMaxValues())
+        end
+        
+        -- Set the progress bar value (fill amount)
+        pBar:SetValue(percentage)
+        
+        if PCL_SETTINGS and PCL_SETTINGS.debug then
+            print("  - After SetValue: current value =", pBar:GetValue())
+        end
+        
+        -- Set the progress bar color based on percentage
         if percentage < 33 then
             pBar:SetStatusBarColor(PCL_SETTINGS.progressColors.low.r, PCL_SETTINGS.progressColors.low.g, PCL_SETTINGS.progressColors.low.b)
         elseif percentage < 66 then
@@ -84,8 +105,21 @@ local function UpdateProgressBar(pBar, totalItems, collectedItems)
         else
             pBar:SetStatusBarColor(PCL_SETTINGS.progressColors.complete.r, PCL_SETTINGS.progressColors.complete.g, PCL_SETTINGS.progressColors.complete.b)
         end
+        
+        -- Update text if it exists
+        if pBar.Text then
+            pBar.Text:SetText(string.format("%d/%d (%d%%)", collectedItems, totalItems, math.floor(percentage)))
+        end
     else
+        pBar:SetValue(0)
         pBar:SetStatusBarColor(0.5, 0.5, 0.5)  -- Gray for no data
+        if pBar.Text then
+            pBar.Text:SetText("0/0 (0%)")
+        end
+        
+        if PCL_SETTINGS and PCL_SETTINGS.debug then
+            print("UpdateProgressBar: No data, setting to 0")
+        end
     end
 end
 
@@ -101,16 +135,70 @@ local function ScrollFrame_OnMouseWheel(self, delta)
 	self:SetVerticalScroll(newValue);
 end
 
+-- Persist and restore main frame size
+function PCL_frames:SaveFrameSize()
+    if not PCL_mainFrame or not PCL_SETTINGS then return end
+    PCL_SETTINGS.frameSize = PCL_SETTINGS.frameSize or {}
+    local w, h = PCL_mainFrame:GetSize()
+    -- Clamp to sane minimums
+    if w < 600 then w = 600 end
+    if h < 400 then h = 400 end
+    PCL_SETTINGS.frameSize.width = w
+    PCL_SETTINGS.frameSize.height = h
+end
 
-function PCL_frames:openSettings()
-	Settings.OpenToCategory(PCLcore.addon_name)
-	local panel = SettingsPanel or InterfaceOptionsFrame or _G["SettingsPanel"]
-	if not panel then return end
+function PCL_frames:RestoreFrameSize()
+    if not PCL_mainFrame or not PCL_SETTINGS then return end
+    local s = PCL_SETTINGS.frameSize
+    if s and s.width and s.height then
+        PCL_mainFrame:SetSize(s.width, s.height)
+    else
+        -- Ensure default size is applied (in case other code changed before)
+        PCL_mainFrame:SetSize(main_frame_width, main_frame_height)
+    end
+    if PCLcore.PCL_MF_Nav and PCL_mainFrame then
+        local _, h = PCL_mainFrame:GetSize()
+        PCLcore.PCL_MF_Nav:SetHeight(h + 1)
+    end
+end
+
+-- Rebuild layout after size/theme changes
+function PCL_frames:RefreshLayout()
+    if not PCL_mainFrame then return end
+    -- Adjust nav height
+    if PCLcore.PCL_MF_Nav then
+        local _, h = PCL_mainFrame:GetSize()
+        PCLcore.PCL_MF_Nav:SetHeight(h + 1)
+    end
+    -- Resize PetCard to match main window height
+    if PCLcore.PetCard and PCLcore.PetCard.ResizePetCard then
+        PCLcore.PetCard:ResizePetCard()
+    end
+    -- Remember currently selected tab name
+    local currentName = nil
+    if PCLcore.currentlySelectedTab and PCLcore.currentlySelectedTab.section then
+        currentName = PCLcore.currentlySelectedTab.section.name
+    end
+    -- Rebuild tabs/content widths
+    PCL_frames:SetTabs()
+    -- Reselect previous tab if possible (fallback to Overview handled in SetTabs)
+    if currentName then
+        if PCLcore.PCL_MF_Nav and PCLcore.PCL_MF_Nav.tabs then
+            for _, tab in ipairs(PCLcore.PCL_MF_Nav.tabs) do
+                if tab.section and tab.section.name == currentName and tab:GetScript("OnClick") then
+                    tab:GetScript("OnClick")(tab)
+                    break
+                end
+            end
+        end
+    end
 end
 
 function PCL_frames:CreateMainFrame()
     local frameTemplate = PCL_SETTINGS.useBlizzardTheme and "PCLBlizzardFrameTemplate" or "PCLFrameTemplateWithInset"
     PCL_mainFrame = CreateFrame("Frame", "PCLFrame", UIParent, frameTemplate);
+    -- Ensure initial default size BEFORE restore so restore can override
+    PCL_mainFrame:SetSize(main_frame_width, main_frame_height)
     if PCL_SETTINGS.useBlizzardTheme then
         if PCL_mainFrame.NineSlice then PCL_mainFrame.NineSlice:Hide() end
         if PCL_mainFrame.PCLFrameTopLeft then PCL_mainFrame.PCLFrameTopLeft:Hide() end
@@ -216,7 +304,7 @@ function PCL_frames:CreateMainFrame()
 
 
 	--PCL Frame settings
-	PCL_mainFrame:SetSize(main_frame_width, main_frame_height); -- width, height
+	PCL_mainFrame:SetSize(main_frame_width, main_frame_height); -- width, height (reset once more in case template changed it)
 	PCL_mainFrame:SetPoint("CENTER", UIParent, "CENTER"); -- point, relativeFrame, relativePoint, xOffset, yOffset
 	PCL_mainFrame:SetHyperlinksEnabled(true)
 	PCL_mainFrame:SetScript("OnHyperlinkClick", ChatFrame_OnHyperlinkShow)
@@ -232,7 +320,7 @@ function PCL_frames:CreateMainFrame()
 	
 	-- Make frame resizable
 	PCL_mainFrame:SetResizable(true)
-	PCL_mainFrame:SetResizeBounds(main_frame_width, main_frame_height, 1600, 1000)  -- min width, min height, max width, max height
+	PCL_mainFrame:SetResizeBounds(600, 400, 1600, 1000)  -- updated min size
 	
 	-- Create resize grip
 	PCL_mainFrame.resizeGrip = CreateFrame("Button", nil, PCL_mainFrame)
@@ -249,6 +337,25 @@ function PCL_frames:CreateMainFrame()
 		-- Save the new size and trigger layout update after resize
 		PCL_frames:SaveFrameSize()
 		PCL_frames:RefreshLayout()
+	end)
+	
+	-- Add resize event handler to continuously update PetCard during resize
+	PCL_mainFrame:SetScript("OnSizeChanged", function(self, width, height)
+		-- Resize PetCard immediately when main frame size changes
+		if PCLcore.PetCard and PCLcore.PetCard.ResizePetCard then
+			PCLcore.PetCard:ResizePetCard()
+			
+			-- Also schedule a delayed resize to handle timing issues
+			C_Timer.After(0.1, function()
+				if PCLcore.PetCard and PCLcore.PetCard.ResizePetCard then
+					PCLcore.PetCard:ResizePetCard()
+				end
+			end)
+		end
+		-- Also update nav frame height
+		if PCLcore.PCL_MF_Nav then
+			PCLcore.PCL_MF_Nav:SetHeight(height + 1)
+		end
 	end)    
 
 	-- Move title to top center
@@ -313,6 +420,12 @@ function PCL_frames:CreateMainFrame()
         end
     end)
     
+    -- Create the navigation frame
+    if not PCLcore.PCL_MF_Nav then
+        PCLcore.PCL_MF_Nav = PCL_frames:createNavFrame(PCL_mainFrame, L("Pet Collection Log"))
+    end
+    
+    PCL_frames:RefreshLayout()
     return PCL_mainFrame
 end
 
@@ -385,14 +498,28 @@ function PCL_frames:SetTabs()
     
     -- Refresh overview stats after calculation
     if PCLcore.overviewFrames then
+        if PCL_SETTINGS and PCL_SETTINGS.debug then
+            print("Refreshing overview stats for", #PCLcore.overviewFrames, "frames")
+        end
         for _, overviewFrame in ipairs(PCLcore.overviewFrames) do
             local sectionName = overviewFrame.name
             local pBar = overviewFrame.frame
             local sectionStats = PCLcore.stats and PCLcore.stats[sectionName]
             
+            if PCL_SETTINGS and PCL_SETTINGS.debug then
+                print("Checking section:", sectionName, "stats available:", sectionStats and "yes" or "no")
+                if sectionStats then
+                    print("  - collected:", sectionStats.collected, "total:", sectionStats.total)
+                end
+            end
+            
             if sectionStats and sectionStats.collected and sectionStats.total then
                 UpdateProgressBar(pBar, sectionStats.total, sectionStats.collected)
             end
+        end
+    else
+        if PCL_SETTINGS and PCL_SETTINGS.debug then
+            print("No overview frames to refresh")
         end
     end
 
@@ -401,6 +528,15 @@ function PCL_frames:SetTabs()
         -- Blizzard theme should ALSO use the separate navigation frame
         tabFrame = PCLcore.PCL_MF_Nav
     else
+        tabFrame = PCLcore.PCL_MF_Nav
+    end
+
+    -- Ensure navigation frame exists before proceeding
+    if not tabFrame then
+        if PCL_SETTINGS and PCL_SETTINGS.debug then
+            print("PCL: Navigation frame not found, creating it now")
+        end
+        PCLcore.PCL_MF_Nav = PCL_frames:createNavFrame(PCL_mainFrame, L("Pet Collection Log"))
         tabFrame = PCLcore.PCL_MF_Nav
     end
 
@@ -548,6 +684,29 @@ function PCL_frames:SetTabs()
         -- Populate overview content
         if PCLcore.sections and PCL_frames.createOverviewCategory then
             PCL_frames:createOverviewCategory(PCLcore.sections, PCLcore.overview)
+            
+            -- Immediately refresh overview progress bars after creation
+            if PCLcore.overviewFrames then
+                if PCL_SETTINGS and PCL_SETTINGS.debug then
+                    print("Immediately refreshing overview stats after creation for", #PCLcore.overviewFrames, "frames")
+                end
+                for _, overviewFrame in ipairs(PCLcore.overviewFrames) do
+                    local sectionName = overviewFrame.name
+                    local pBar = overviewFrame.frame
+                    local sectionStats = PCLcore.stats and PCLcore.stats[sectionName]
+                    
+                    if PCL_SETTINGS and PCL_SETTINGS.debug then
+                        print("Immediate refresh - section:", sectionName, "stats available:", sectionStats and "yes" or "no")
+                        if sectionStats then
+                            print("  - collected:", sectionStats.collected, "total:", sectionStats.total)
+                        end
+                    end
+                    
+                    if sectionStats and sectionStats.collected and sectionStats.total then
+                        UpdateProgressBar(pBar, sectionStats.total, sectionStats.collected)
+                    end
+                end
+            end
         end
         
         if tab.content then tab.content:Hide() end
@@ -575,12 +734,12 @@ function PCL_frames:SetTabs()
     end
     -- 2. Expansion grid (icon-only, 3 per row)
     local gridCols, iconSize, iconPad = 3, 36, 8
-    local gridStartY = navYOffset
+    local gridStartY = navYOffset - 10  -- Add spacing between Overview and expansion grid
     
     -- Calculate centering for expansion icons within the nav sidebar
     local totalGridWidth = gridCols * iconSize + (gridCols - 1) * iconPad
     local navFrameWidth = nav_width + 10  -- Use the nav frame width
-    local gridStartX = (navFrameWidth - totalGridWidth) / 2  -- Center within nav frame
+    local gridStartX = math.floor((navFrameWidth - totalGridWidth) / 2) + 1  -- Center within nav frame, add 1px offset for better alignment
     
     for i, v in ipairs(expansionSections) do
         local col = ((i-1) % gridCols)
@@ -618,7 +777,12 @@ function PCL_frames:SetTabs()
         table.insert(PCLcore.sectionFrames, btn.content)
         tabIndex = tabIndex + 1
     end
-    navYOffset = gridStartY - math.ceil(#expansionSections / gridCols) * (iconSize + iconPad) - 10
+    -- Correct grid height calculation: rows*iconSize + (rows-1)*iconPad
+    do
+        local rows = math.ceil(#expansionSections / gridCols)
+        local gridHeight = rows > 0 and (rows * iconSize + (rows - 1) * iconPad) or 0
+        navYOffset = gridStartY - gridHeight - 15  -- Add more spacing after expansion grid
+    end
     -- 3. Remaining full-width tabs
     for _, v in ipairs(otherSections) do
         local tab = CreateFrame("Button", nil, tabFrame, "BackdropTemplate")
@@ -653,7 +817,7 @@ function PCL_frames:SetTabs()
         end
         table.insert(PCLcore.sectionFrames, tab.content)
         tabIndex = tabIndex + 1
-        navYOffset = navYOffset - 28
+        navYOffset = navYOffset - 36  -- was 28, caused 4px overlap (32 height - 28 step)
     end
     -- 4. Pinned tab (always last)
     if pinnedSection then
@@ -666,7 +830,7 @@ function PCL_frames:SetTabs()
         tab.text:SetText(L(pinnedSection.name) or pinnedSection.name)
         tab.section = pinnedSection
         tab.content = PCL_frames:createContentFrame(PCL_mainFrame.ScrollChild, pinnedSection.name)
-                
+        
         -- Set global reference for pinned content frame (used by functions.lua)
         _G["PinnedFrame"] = tab.content
         _G["PinnedTab"] = tab
@@ -707,7 +871,30 @@ function PCL_frames:SetTabs()
         end
         table.insert(PCLcore.sectionFrames, tab.content)
         tabIndex = tabIndex + 1
-        navYOffset = navYOffset - 28
+        navYOffset = navYOffset - 36  -- maintain consistent spacing
+    end
+    -- 5. Settings tab (always last)
+    do
+        local tab = CreateFrame("Button", nil, tabFrame, "BackdropTemplate")
+        tab:SetSize(nav_width + 8, 32)
+        tab:SetPoint("TOPLEFT", tabFrame, "TOPLEFT", 1, navYOffset)
+        StyleNavButton(tab, false)
+        tab.text = tab:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        tab.text:SetPoint("LEFT", 10, 0)
+        tab.text:SetText(L("Settings") or "Settings")
+        tab.section = { name = "Settings" }
+        tab.content = PCL_frames:createSettingsFrame(PCL_mainFrame.ScrollChild)
+        tab.content:Hide()
+        tab:SetScript("OnClick", function(self) SelectTab(self) end)
+        tab:EnableMouse(true)
+        tab:SetFrameStrata("HIGH")
+        tab:SetFrameLevel(100)
+        tab:Show()
+        table.insert(tabFrame.tabs, tab)
+        if PCLcore.PCL_MF_Nav then table.insert(PCLcore.PCL_MF_Nav.tabs, tab) end
+        table.insert(PCLcore.sectionFrames, tab.content)
+        tabIndex = tabIndex + 1
+        navYOffset = navYOffset - 36  -- maintain consistent spacing
     end
     -- Select Overview by default
     if selectedTab then
@@ -880,40 +1067,27 @@ end
 
 function PCL_frames:progressBar(relativeFrame, top)
     MyStatusBar = CreateFrame("StatusBar", nil, relativeFrame, "BackdropTemplate")
-    
     -- Set statusbar texture with fallback if LibSharedMedia is not available
     if PCLcore.media and PCL_SETTINGS.statusBarTexture then
         local texture = PCLcore.media:Fetch("statusbar", PCL_SETTINGS.statusBarTexture)
         if texture then
             MyStatusBar:SetStatusBarTexture(texture)
         else
-            -- Fallback to default texture
-            MyStatusBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+            MyStatusBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-Status-Bar")
         end
     else
-        -- Fallback to default texture when PCLcore.media is not available
-        MyStatusBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+        MyStatusBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-Status-Bar")
     end
-    
-    -- Track this status bar for texture updates
-    if not PCLcore.statusBarFrames then
-        PCLcore.statusBarFrames = {}
-    end
+    if not PCLcore.statusBarFrames then PCLcore.statusBarFrames = {} end
+    -- Insert only once (previous duplicate removed)
     table.insert(PCLcore.statusBarFrames, MyStatusBar)
-    
     MyStatusBar:GetStatusBarTexture():SetHorizTile(false)
     MyStatusBar:SetMinMaxValues(0, 100)
     MyStatusBar:SetValue(0)
     MyStatusBar:SetWidth(150)
     MyStatusBar:SetHeight(15)
-    if top then
-        MyStatusBar:SetPoint("BOTTOMLEFT", relativeFrame, "BOTTOMLEFT", 0, 10)
-    else
-        MyStatusBar:SetPoint("BOTTOMLEFT", relativeFrame, "BOTTOMLEFT", 0, 10)
-    end
-
+    MyStatusBar:SetPoint("BOTTOMLEFT", relativeFrame, "BOTTOMLEFT", 0, 10)
     MyStatusBar:SetStatusBarColor(0.1, 0.9, 0.1)
-
     MyStatusBar.bg = MyStatusBar:CreateTexture(nil, "BACKGROUND")
     MyStatusBar.bg:SetTexture("Interface\\TARGETINGFRAME\\UI-Status-Bar")
     MyStatusBar.bg:SetAllPoints(true)
@@ -923,9 +1097,6 @@ function PCL_frames:progressBar(relativeFrame, top)
     MyStatusBar.Text:SetPoint("CENTER")
     MyStatusBar.Text:SetJustifyH("CENTER")
     MyStatusBar.Text:SetText()
-
-    table.insert(PCLcore.statusBarFrames, MyStatusBar)
-
     return MyStatusBar
 end
 
@@ -1033,7 +1204,7 @@ function PCL_frames:createOverviewCategory(set, relativeFrame)
     local numColumns = 2
     local columnWidth = math.floor((availableWidth - columnSpacing * (numColumns - 1)) / numColumns)
     
-    local leftColumnX = 15  -- Start with padding from left edge
+    local leftColumnX = -10  -- Start with padding from left edge
     local rightColumnX = leftColumnX + columnWidth + columnSpacing
     
     local leftColumnY = -30  -- Reduced from -60 for tighter spacing
@@ -1082,11 +1253,11 @@ function PCL_frames:createOverviewCategory(set, relativeFrame)
                 edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
                 edgeSize = 1
             })
-            pBar:SetBackdropColor(0.1, 0.1, 0.1, 0.8)  -- Dark background
-            pBar:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)  -- Subtle border
+            pBar:SetBackdropColor(0.1, 0.1, 0.1, 0.3)
+            pBar:SetBackdropBorderColor(0.6,0.2,0.8,0)
             
             -- Use settings texture if available, otherwise fallback to TargetingFrame
-            local textureToUse = "Interface\\TargetingFrame\\UI-StatusBar"  -- Good default that colors well
+            local textureToUse = "Interface\\TargetingFrame\\UI-Status-Bar"  -- Good default that colors well
             if PCL_SETTINGS and PCL_SETTINGS.statusBarTexture and PCLcore.media then
                 local settingsTexture = PCLcore.media:Fetch("statusbar", PCL_SETTINGS.statusBarTexture)
                 if settingsTexture then
@@ -1241,11 +1412,6 @@ function PCL_frames:createOverviewCategory(set, relativeFrame)
     relativeFrame:SetHeight(requiredHeight)
 end
 
-
-----------------------------------------------------------------
--- Creating a placeholder for each category, this is where we attach each mount to.
-----------------------------------------------------------------
-
 function PCL_frames:createCategoryFrame(set, relativeFrame, sectionName)
     if not set then
         return
@@ -1262,6 +1428,38 @@ function PCL_frames:createCategoryFrame(set, relativeFrame, sectionName)
         return
     end
 
+    -- CRITICAL: Clear existing category frames from this relativeFrame before creating new ones
+    -- This prevents coordinate accumulation when the function is called multiple times
+    if relativeFrame then
+        local children = {relativeFrame:GetChildren()}
+        for _, child in ipairs(children) do
+            -- Only remove category frames, not the title or progress bar
+            if child and child:GetName() and string.find(child:GetName() or "", "Category") then
+                child:Hide()
+                child:SetParent(nil)
+            elseif child and not child.title and not child.pBar then
+                -- Remove unnamed frames that are likely category frames (don't have title or pBar)
+                child:Hide()
+                child:SetParent(nil)
+            end
+        end
+    end
+
+    -- Debug: Show what's in the set to understand the structure
+    if PCLcore and PCLcore.Debug then
+        print(string.format("[PCL Debug] === FUNCTION CALL: createCategoryFrame for section: %s ===", sectionName or "Unknown"))
+        local setCount = 0
+        for k, v in pairs(set) do
+            setCount = setCount + 1
+            if type(v) == "table" then
+                print(string.format("[PCL Debug] - Category %d: %s (table)", setCount, k))
+            else
+                print(string.format("[PCL Debug] - Category %d: %s (%s)", setCount, k, type(v)))
+            end
+        end
+        print(string.format("[PCL Debug] Total categories in set: %d", setCount))
+    end
+
     -- Dynamic layout calculation based on current frame width
     local currentWidth, _ = PCL_frames:GetCurrentFrameDimensions()
     local availableWidth = currentWidth - 60  -- Total content width
@@ -1269,55 +1467,279 @@ function PCL_frames:createCategoryFrame(set, relativeFrame, sectionName)
     local numColumns = 2
     local columnWidth = math.floor((availableWidth - columnSpacing * (numColumns - 1)) / numColumns)
     
-    local leftColumnX = 0
+    local leftColumnX = -10  -- Start with proper padding from left edge (consistent with overview)
     local rightColumnX = leftColumnX + columnWidth + columnSpacing
     
+    -- RESET Y positions for each section - this was the missing piece!
     local leftColumnY = -50
     local rightColumnY = -50
     local categoryIndex = 0
 
+    -- Debug output for section start
+    if PCLcore and PCLcore.Debug then
+        print(string.format("[PCL Debug] Reset Y positions: leftY=%d, rightY=%d", leftColumnY, rightColumnY))
+    end
+
     -- Get sorted category names
-local sortedCategoryNames = {}
-for k, v in pairs(set) do
-    if type(v) == "table" then
-        table.insert(sortedCategoryNames, k)
-    end
-end
-table.sort(sortedCategoryNames)
-
-local leftColumnY = -50
-local rightColumnY = -50
-local categoryIndex = 0
-
-for _, categoryName in ipairs(sortedCategoryNames) do
-    local categoryData = set[categoryName]
-    -- Calculate mount stats for this category first (needed for dynamic height)
-    local totalMounts = 0
-    local collectedMounts = 0
-    local displayedMounts = 0  -- Track mounts that will actually be displayed
-    
-    -- Combine both mounts and mountID arrays
-    local mountList = {}
-    if categoryData.pets then
-        for _, pet in ipairs(categoryData.pets) do
-            table.insert(mountList, pet)
+    local sortedCategoryNames = {}
+    for k, v in pairs(set) do
+        if type(v) == "table" then
+            table.insert(sortedCategoryNames, k)
         end
     end
-    if categoryData.mountID then
-        for _, mount in ipairs(categoryData.mountID) do
-            table.insert(mountList, mount)
+    table.sort(sortedCategoryNames)
+
+    for _, categoryName in ipairs(sortedCategoryNames) do
+        local categoryData = set[categoryName]
+        -- Calculate mount stats for this category first (needed for dynamic height)
+        local totalMounts = 0
+        local collectedMounts = 0
+        local displayedMounts = 0  -- Track mounts that will actually be displayed
+        
+        -- Combine both mounts and mountID arrays
+        local mountList = {}
+        if categoryData.pets then
+            for _, pet in ipairs(categoryData.pets) do
+                table.insert(mountList, pet)
+            end
         end
-    end
-    
-    for _, mountId in ipairs(mountList) do
-        local mount_Id = PCLcore.Function:GetPetID(mountId)
-        if mount_Id and (type(mount_Id) == "number" or type(mount_Id) == "string") and tonumber(mount_Id) and tonumber(mount_Id) > 0 then
-            local petSpeciesID = tonumber(mount_Id)
+        if categoryData.mountID then
+            for _, mount in ipairs(categoryData.mountID) do
+                table.insert(mountList, mount)
+            end
+        end
+        
+        for _, mountId in ipairs(mountList) do
+            local mount_Id = PCLcore.Function:GetPetID(mountId)
+            if mount_Id and (type(mount_Id) == "number" or type(mount_Id) == "string") and tonumber(mount_Id) and tonumber(mount_Id) > 0 then
+                local petSpeciesID = tonumber(mount_Id)
+                
+                -- Validate pet exists and is obtainable before counting
+                local petName, icon, petType, companionID, tooltipSource, tooltipDescription, isWild, canBattle, isTradeable, isUnique, obtainable = C_PetJournal.GetPetInfoBySpeciesID(petSpeciesID)
+                if obtainable ~= nil and petName then
+                    -- Faction check: Only count pets that are not faction-specific or match the player's faction
+                    local faction, faction_specific = PCLcore.Function.IsPetFactionSpecific(mountId)
+                    local playerFaction = UnitFactionGroup("player")
+                    local allowed = false
+                    if faction_specific == false then
+                        allowed = true
+                    elseif faction_specific == true then
+                        if faction == 0 then faction = "Horde" elseif faction == 1 then faction = "Alliance" end
+                        allowed = (faction == playerFaction)
+                    end
+                    if allowed then
+                        local isCollected = IsPetCollected(petSpeciesID)
+                        totalMounts = totalMounts + 1
+                        if isCollected then
+                            collectedMounts = collectedMounts + 1
+                        end
+                        if not (PCL_SETTINGS.hideCollectedPets and isCollected) then
+                            displayedMounts = displayedMounts + 1
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Only increment categoryIndex if the category is actually displayed (e.g., displayedMounts > 0)
+        if displayedMounts > 0 then
+            categoryIndex = categoryIndex + 1
+            -- Determine which column to use (alternate left/right)
+            local isLeftColumn = (categoryIndex % 2 == 1)
+            local xPos = isLeftColumn and leftColumnX or rightColumnX
+            local yPos = isLeftColumn and leftColumnY or rightColumnY
             
-            -- Validate pet exists and is obtainable before counting
-            local petName, icon, petType, companionID, tooltipSource, tooltipDescription, isWild, canBattle, isTradeable, isUnique, obtainable = C_PetJournal.GetPetInfoBySpeciesID(petSpeciesID)
-            if obtainable ~= nil and petName then
-                -- Faction check: Only count pets that are not faction-specific or match the player's faction
+            -- Calculate optimal pets per row based on column width (same calculation as later)
+            local categoryPadding = 20  -- Total padding (10px on each side)
+            local availableMountWidth = columnWidth - categoryPadding
+            
+            -- Start with user's preferred pets per row
+            local mountsPerRow = PCL_SETTINGS.PetsPerRow or 12  -- Use setting or default to 12
+            -- Ensure it's within bounds
+            mountsPerRow = math.max(6, math.min(mountsPerRow, 24))
+            
+            -- Calculate mount size to fit exactly within available width
+            local desiredSpacing = 4  -- Fixed spacing between mounts
+            local minMountSize = 16  -- Absolute minimum mount size (reduced from 24)
+            local maxMountSize = 48  -- Maximum mount size
+            
+            -- Try the preferred mounts per row first
+            local totalSpacingWidth = desiredSpacing * (mountsPerRow - 1)
+            local availableForMounts = availableMountWidth - totalSpacingWidth
+            local mountSize = math.floor(availableForMounts / mountsPerRow)
+            
+            -- If mount size is too small, reduce mounts per row until we get acceptable size
+            while mountSize < minMountSize and mountsPerRow > 6 do
+                mountsPerRow = mountsPerRow - 1
+                totalSpacingWidth = desiredSpacing * (mountsPerRow - 1)
+                availableForMounts = availableMountWidth - totalSpacingWidth
+                mountSize = math.floor(availableForMounts / mountsPerRow)
+            end
+            
+            -- Ensure mount size is within bounds
+            mountSize = math.max(minMountSize, math.min(mountSize, maxMountSize))
+            
+            -- Recalculate actual spacing to center the grid
+            local actualMountWidth = mountSize * mountsPerRow
+            local actualSpacing = mountsPerRow > 1 and math.floor((availableMountWidth - actualMountWidth) / (mountsPerRow - 1)) or 0
+            actualSpacing = math.max(1, actualSpacing)  -- Minimum 1px spacing (reduced from 2)
+            
+            -- Calculate dynamic height based on actual mount layout
+            local numRows = math.ceil(displayedMounts / mountsPerRow)
+            local baseHeight = 80  -- Base height (title + progress bar + padding)
+            local rowSpacing = 4  -- Minimal Y-axis spacing between rows (reduced)
+            local rowHeight = mountSize + rowSpacing  -- Actual row height based on calculated mount size
+            local categoryHeight = baseHeight + (numRows * rowHeight) + 10  -- Reduced bottom padding
+            
+            -- Debug output for category height calculation
+            if PCLcore and PCLcore.Debug then
+                print(string.format("[PCL Debug] Category: %s", categoryData.name or categoryName or "Unknown"))
+                print(string.format("[PCL Debug] - displayedMounts: %d, mountsPerRow: %d", displayedMounts, mountsPerRow))
+                print(string.format("[PCL Debug] - numRows: %d, mountSize: %d", numRows, mountSize))
+                print(string.format("[PCL Debug] - baseHeight: %d, rowHeight: %d", baseHeight, rowHeight))
+                print(string.format("[PCL Debug] - categoryHeight: %d", categoryHeight))
+                print(string.format("[PCL Debug] - Position: x=%d, y=%d", xPos, yPos))
+            end
+            
+            -- Create category frame with dynamic height
+            local categoryFrame = CreateFrame("Frame", nil, relativeFrame, "BackdropTemplate")
+
+            categoryFrame:SetWidth(columnWidth)
+            categoryFrame:SetHeight(categoryHeight)  -- Dynamic height
+            categoryFrame:SetPoint("TOPLEFT", relativeFrame, "TOPLEFT", xPos, yPos)
+            categoryFrame:SetBackdrop({
+                bgFile = "Interface\\Buttons\\WHITE8x8",
+                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                edgeSize = 8
+            })
+            categoryFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
+            categoryFrame:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+
+            -- Category title
+            categoryFrame.title = categoryFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+            categoryFrame.title:SetPoint("TOPLEFT", categoryFrame, "TOPLEFT", 10, -8)
+            categoryFrame.title:SetText(L(categoryData.name) or L(categoryName) or categoryData.name or categoryName)
+            categoryFrame.title:SetTextColor(1, 1, 1, 1)
+            
+            -- CRITICAL FIX: Immediately update the column Y position so subsequent categories use the correct anchor.
+            -- Previously this was deferred until the end of the loop, causing overlap because
+            -- the loop continued positioning later categories before the Y offsets were adjusted.
+            if isLeftColumn then
+                leftColumnY = leftColumnY - (categoryHeight + 8)  -- Reduced spacing between categories
+                if PCLcore and PCLcore.Debug then
+                    print(string.format("[PCL Debug] Left column Y: %d -> %d (moved %d)", yPos, leftColumnY, categoryHeight + 8))
+                end
+            else
+                rightColumnY = rightColumnY - (categoryHeight + 8)  -- Reduced spacing between categories
+                
+                -- After placing a right column category, both columns should move to the next row
+                -- Set both to the position that allows the next pair to be placed with minimal spacing
+                local nextRowY = math.min(leftColumnY, rightColumnY) - 8  -- Small gap between rows
+                if PCLcore and PCLcore.Debug then
+                    print(string.format("[PCL Debug] Right column Y: %d -> %d (moved %d)", yPos, rightColumnY, categoryHeight + 8))
+                    print(string.format("[PCL Debug] Row sync: leftY=%d, rightY=%d -> nextRowY=%d", leftColumnY, rightColumnY, nextRowY))
+                end
+                leftColumnY = nextRowY
+                rightColumnY = nextRowY
+            end
+            
+            -- Create progress bar container
+            local progressContainer = CreateFrame("Frame", nil, categoryFrame)
+            progressContainer:SetWidth(columnWidth - 20)  -- Now 500px wide
+            progressContainer:SetHeight(18)
+            progressContainer:SetPoint("TOPLEFT", categoryFrame.title, "BOTTOMLEFT", 0, -5)
+            
+            -- Create progress bar using proper texture fallback
+            local pBar = CreateFrame("StatusBar", nil, progressContainer, "BackdropTemplate")
+            
+            -- Use settings texture if available, otherwise fallback to TargetingFrame
+            local textureToUse = "Interface\\TargetingFrame\\UI-Status-Bar"  -- Good default that colors well
+            if PCL_SETTINGS and PCL_SETTINGS.statusBarTexture and PCLcore.media then
+                local settingsTexture = PCLcore.media:Fetch("statusbar", PCL_SETTINGS.statusBarTexture)
+                if settingsTexture then
+                    textureToUse = settingsTexture
+                end
+            end
+            
+            pBar:SetStatusBarTexture(textureToUse)
+            pBar:GetStatusBarTexture():SetHorizTile(false)
+            pBar:GetStatusBarTexture():SetVertTile(false)
+            pBar:SetMinMaxValues(0, 100)
+            pBar:SetValue(0)
+            pBar:SetAllPoints(progressContainer)
+            
+            -- Background for progress bar
+            pBar:SetBackdrop({
+                bgFile = "Interface\\Buttons\\WHITE8x8",
+                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                edgeSize = 1
+            })
+            pBar:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
+            pBar:SetBackdropBorderColor(0.6,0.2,0.8,0)
+            
+            -- Text for progress bar
+            pBar.Text = pBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            pBar.Text:SetPoint("CENTER", pBar, "CENTER", 0, 0)
+            pBar.Text:SetTextColor(1, 1, 1, 1)
+            
+            -- Update progress bar
+            local percentage = totalMounts > 0 and (collectedMounts / totalMounts) * 100 or 0
+            pBar:SetValue(percentage)
+            pBar.Text:SetText(string.format("%d/%d (%d%%)", collectedMounts, totalMounts, percentage))
+            
+            -- Use the UpdateProgressBar function for consistent coloring
+            pBar.val = percentage
+            UpdateProgressBar(pBar, totalMounts, collectedMounts)
+            
+            -- Mount grid within category - positioned below progress bar
+            local mountStartY = -60  -- More padding below progress bar
+            
+            -- Use the same calculations as in height calculation for consistency
+            local categoryPadding = 20  -- Total padding (10px on each side)
+            local availableMountWidth = columnWidth - categoryPadding
+            
+            -- Start with user's preferred pets per row
+            local mountsPerRow = PCL_SETTINGS.PetsPerRow or 12  -- Use setting or default to 12
+            -- Ensure it's within bounds
+            mountsPerRow = math.max(6, math.min(mountsPerRow, 24))
+            
+            -- Calculate mount size to fit exactly within available width
+            local desiredSpacing = 4  -- Fixed spacing between mounts
+            local minMountSize = 16  -- Absolute minimum mount size (reduced from 24)
+            local maxMountSize = 48  -- Maximum mount size
+            
+            -- Try the preferred mounts per row first
+            local totalSpacingWidth = desiredSpacing * (mountsPerRow - 1)
+            local availableForMounts = availableMountWidth - totalSpacingWidth
+            local mountSize = math.floor(availableForMounts / mountsPerRow)
+            
+            -- If mount size is too small, reduce mounts per row until we get acceptable size
+            while mountSize < minMountSize and mountsPerRow > 6 do
+                mountsPerRow = mountsPerRow - 1
+                totalSpacingWidth = desiredSpacing * (mountsPerRow - 1)
+                availableForMounts = availableMountWidth - totalSpacingWidth
+                mountSize = math.floor(availableForMounts / mountsPerRow)
+            end
+            
+            -- Ensure mount size is within bounds
+            mountSize = math.max(minMountSize, math.min(mountSize, maxMountSize))
+            
+            -- Recalculate actual spacing to center the grid
+            local actualMountWidth = mountSize * mountsPerRow
+            local actualSpacing = mountsPerRow > 1 and math.floor((availableMountWidth - actualMountWidth) / (mountsPerRow - 1)) or 0
+            actualSpacing = math.max(1, actualSpacing)  -- Minimum 1px spacing (reduced from 2)
+            
+            -- Y-axis spacing (only affected by height changes)
+            local rowSpacing = 4  -- Minimal Y-axis spacing between rows
+            
+            local maxDisplayMounts = displayedMounts  -- Show all displayed mounts instead of limiting to 24
+            local mountStartX = 10
+            local displayedIndex = 0  -- Track the actual displayed position
+            
+            for i, mountId in ipairs(mountList) do
+                -- Check if we should skip this mount due to hide collected mounts setting
+                local mount_Id = PCLcore.Function:GetPetID(mountId)
+                -- Faction check: Only display pets that are not faction-specific or match the player's faction
                 local faction, faction_specific = PCLcore.Function.IsPetFactionSpecific(mountId)
                 local playerFaction = UnitFactionGroup("player")
                 local allowed = false
@@ -1327,524 +1749,587 @@ for _, categoryName in ipairs(sortedCategoryNames) do
                     if faction == 0 then faction = "Horde" elseif faction == 1 then faction = "Alliance" end
                     allowed = (faction == playerFaction)
                 end
-                if allowed then
-                    local isCollected = IsPetCollected(petSpeciesID)
-                    totalMounts = totalMounts + 1
-                    if isCollected then
-                        collectedMounts = collectedMounts + 1
-                    end
-                    if not (PCL_SETTINGS.hideCollectedPets and isCollected) then
-                        displayedMounts = displayedMounts + 1
-                    end
-                end
-            end
-        end
-    end
+                if allowed and not (mount_Id and PCL_SETTINGS.hideCollectedPets and IsPetCollected(tonumber(mount_Id))) then
+                    displayedIndex = displayedIndex + 1
+                    if displayedIndex <= maxDisplayMounts then
+                    local col = ((displayedIndex-1) % mountsPerRow)
+                    local row = math.floor((displayedIndex-1) / mountsPerRow)
+                    
+                    -- Calculate exact position for this icon
+                    local iconX = mountStartX + col * (mountSize + actualSpacing)
+                    local iconY = mountStartY - row * (mountSize + rowSpacing)  -- Use rowSpacing for Y
+                    
+                    -- Get pet info first to check if pet exists before creating any frames
+                    if mount_Id and (type(mount_Id) == "number" or type(mount_Id) == "string") and tonumber(mount_Id) and tonumber(mount_Id) > 0 then
+                        local petSpeciesID = tonumber(mount_Id)
+                        local petName, icon, petType, companionID, tooltipSource, tooltipDescription, isWild, canBattle, isTradeable, isUnique, obtainable = C_PetJournal.GetPetInfoBySpeciesID(petSpeciesID)
+                        -- Skip pets that don't exist (return nil from GetPetInfoBySpeciesID)
+                        if obtainable ~= nil then
+                            -- Create backdrop frame first (smaller than spacing to create visual gaps) - only if pet exists
+                            local backdropSize = mountSize + 2  -- Only 1px overhang on each side for visual separation
+                            local backdropFrame = CreateFrame("Frame", nil, categoryFrame, "BackdropTemplate")
+                            backdropFrame:SetSize(backdropSize, backdropSize)
+                            backdropFrame:SetPoint("TOPLEFT", categoryFrame, "TOPLEFT", 
+                                iconX - 1, -- Minimal offset for overhang
+                                iconY + 1) -- Minimal offset for overhang
+                            
+                            -- Store the pet ID for search functionality
+                            backdropFrame.petID = mountId
+                            -- Create pet frame (for icon) centered in backdrop only if pet exists
+                            local petFrame = CreateFrame("Button", nil, backdropFrame)
+                            petFrame:SetSize(mountSize, mountSize)
+                            petFrame:SetPoint("CENTER", backdropFrame, "CENTER", 0, 0)
+                            
+                            -- Store the pet ID for search functionality
+                            petFrame.petID = mountId
+                            
+                            -- Set category and section for pinning functionality
+                            petFrame.category = categoryData.name or categoryName
+                            petFrame.section = sectionName or "Unknown"
+                            
+                            if icon then
+                                -- Create the icon texture
+                                petFrame.tex = petFrame:CreateTexture(nil, "ARTWORK")
+                                petFrame.tex:SetAllPoints(petFrame)
+                                petFrame.tex:SetTexture(icon)
+                                
+                                -- Create pin icon for this mount frame
+                                petFrame.pin = petFrame:CreateTexture(nil, "OVERLAY")
+                                petFrame.pin:SetWidth(16)
+                                petFrame.pin:SetHeight(16)
+                                petFrame.pin:SetTexture("Interface\\AddOns\\PCL\\icons\\pin.blp")
+                                petFrame.pin:SetPoint("TOPRIGHT", petFrame, "TOPRIGHT", 6, 6)
+                                
+                                -- Check if this pet is pinned and set pin visibility
+                                local pin_check = PCLcore.Function:CheckIfPinned("p"..petSpeciesID)
+                                if pin_check == true then
+                                    petFrame.pin:SetAlpha(1)
+                                else
+                                    petFrame.pin:SetAlpha(0)
+                                end
+                                
+                                -- Check if pet is collected and style backdrop accordingly
+                                if IsPetCollected(petSpeciesID) then
+                                    -- Collected pet styling - green background with thick border
+                                    petFrame.tex:SetVertexColor(1, 1, 1, 1)
+                                    backdropFrame:SetBackdrop({
+                                        bgFile = "Interface\\Buttons\\WHITE8x8",
+                                        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                                        edgeSize = 3  -- Thicker border
+                                    })
+                                    backdropFrame:SetBackdropColor(0, 0.8, 0, 0.6)  -- Brighter green background
+                                    backdropFrame:SetBackdropBorderColor(0, 1, 0, 1)  -- Bright green border
+                                else
+                                    -- Uncollected pet styling - red/dark background
+                                    petFrame.tex:SetVertexColor(0.4, 0.4, 0.4, 0.7)
+                                    backdropFrame:SetBackdrop({
+                                        bgFile = "Interface\\Buttons\\WHITE8x8",
+                                        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                                        edgeSize = 2  -- Slightly thinner border for uncollected
+                                    })
+                                    backdropFrame:SetBackdropColor(0.3, 0.1, 0.1, 0.4)  -- Reddish background
+                                    backdropFrame:SetBackdropBorderColor(0.6, 0.2, 0.2, 0.8)  -- Red border
+                                end
+                                
+                                -- Add pet interaction to the pet frame
+                                if PCLcore.Function and PCLcore.Function.LinkPetItem then
+                                    -- Ensure we pass the proper pet ID format with "p" prefix
+                                    local petID = "p" .. petSpeciesID
+                                    PCLcore.Function:LinkPetItem(petID, petFrame, false)
+                                end
 
-    -- Only increment categoryIndex if the category is actually displayed (e.g., displayedMounts > 0)
-    if displayedMounts > 0 then
-        categoryIndex = categoryIndex + 1
-        -- Determine which column to use (alternate left/right)
-        local isLeftColumn = (categoryIndex % 2 == 1)
-        local xPos = isLeftColumn and leftColumnX or rightColumnX
-        local yPos = isLeftColumn and leftColumnY or rightColumnY
-        
-        -- Calculate optimal pets per row based on column width (same calculation as later)
-        local categoryPadding = 20  -- Total padding (10px on each side)
-        local availableMountWidth = columnWidth - categoryPadding
-        
-        -- Start with user's preferred pets per row
-        local mountsPerRow = PCL_SETTINGS.PetsPerRow or 12  -- Use setting or default to 12
-        -- Ensure it's within bounds
-        mountsPerRow = math.max(6, math.min(mountsPerRow, 24))
-        
-        -- Calculate mount size to fit exactly within available width
-        local desiredSpacing = 4  -- Fixed spacing between mounts
-        local minMountSize = 16  -- Absolute minimum mount size (reduced from 24)
-        local maxMountSize = 48  -- Maximum mount size
-        
-        -- Try the preferred mounts per row first
-        local totalSpacingWidth = desiredSpacing * (mountsPerRow - 1)
-        local availableForMounts = availableMountWidth - totalSpacingWidth
-        local mountSize = math.floor(availableForMounts / mountsPerRow)
-        
-        -- If mount size is too small, reduce mounts per row until we get acceptable size
-        while mountSize < minMountSize and mountsPerRow > 6 do
-            mountsPerRow = mountsPerRow - 1
-            totalSpacingWidth = desiredSpacing * (mountsPerRow - 1)
-            availableForMounts = availableMountWidth - totalSpacingWidth
-            mountSize = math.floor(availableForMounts / mountsPerRow)
-        end
-        
-        -- Ensure mount size is within bounds
-        mountSize = math.max(minMountSize, math.min(mountSize, maxMountSize))
-        
-        -- Recalculate actual spacing to center the grid
-        local actualMountWidth = mountSize * mountsPerRow
-        local actualSpacing = mountsPerRow > 1 and math.floor((availableMountWidth - actualMountWidth) / (mountsPerRow - 1)) or 0
-        actualSpacing = math.max(1, actualSpacing)  -- Minimum 1px spacing (reduced from 2)
-        
-        -- Calculate dynamic height based on actual mount layout
-        local numRows = math.ceil(displayedMounts / mountsPerRow)
-        local baseHeight = 80  -- Base height (title + progress bar + padding)
-        local rowSpacing = 4  -- Minimal Y-axis spacing between rows (reduced)
-        local rowHeight = mountSize + rowSpacing  -- Actual row height based on calculated mount size
-        local categoryHeight = baseHeight + (numRows * rowHeight) + 10  -- Reduced bottom padding
-        
-        -- Create category frame with dynamic height
-        local categoryFrame = CreateFrame("Frame", nil, relativeFrame, "BackdropTemplate")
-
-        categoryFrame:SetWidth(columnWidth)
-        categoryFrame:SetHeight(categoryHeight)  -- Dynamic height
-        categoryFrame:SetPoint("TOPLEFT", relativeFrame, "TOPLEFT", xPos, yPos)
-        categoryFrame:SetBackdrop({
-            bgFile = "Interface\\Buttons\\WHITE8x8",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            edgeSize = 8
-        })
-        categoryFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
-        categoryFrame:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
-        categoryFrame:SetPoint("TOPLEFT", relativeFrame, "TOPLEFT", xPos, yPos)
-        categoryFrame:SetBackdrop({
-            bgFile = "Interface\\Buttons\\WHITE8x8",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            edgeSize = 8
-        })
-        categoryFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
-        categoryFrame:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
-
-        -- Category title
-        categoryFrame.title = categoryFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-        categoryFrame.title:SetPoint("TOPLEFT", categoryFrame, "TOPLEFT", 10, -8)
-        categoryFrame.title:SetText(L(categoryData.name) or L(categoryName) or categoryData.name or categoryName)
-        categoryFrame.title:SetTextColor(1, 1, 1, 1)
-        
-        -- Create progress bar container
-        local progressContainer = CreateFrame("Frame", nil, categoryFrame)
-        progressContainer:SetWidth(columnWidth - 20)  -- Now 500px wide
-        progressContainer:SetHeight(18)
-        progressContainer:SetPoint("TOPLEFT", categoryFrame.title, "BOTTOMLEFT", 0, -5)
-        
-        -- Create progress bar using proper texture fallback
-        local pBar = CreateFrame("StatusBar", nil, progressContainer, "BackdropTemplate")
-        
-        -- Use settings texture if available, otherwise fallback to TargetingFrame
-        local textureToUse = "Interface\\TargetingFrame\\UI-StatusBar"  -- Good default that colors well
-        if PCL_SETTINGS and PCL_SETTINGS.statusBarTexture and PCLcore.media then
-            local settingsTexture = PCLcore.media:Fetch("statusbar", PCL_SETTINGS.statusBarTexture)
-            if settingsTexture then
-                textureToUse = settingsTexture
-            end
-        end
-        
-        pBar:SetStatusBarTexture(textureToUse)
-        pBar:GetStatusBarTexture():SetHorizTile(false)
-        pBar:GetStatusBarTexture():SetVertTile(false)
-        pBar:SetMinMaxValues(0, 100)
-        pBar:SetValue(0)
-        pBar:SetAllPoints(progressContainer)
-        
-        -- Background for progress bar
-        pBar:SetBackdrop({
-            bgFile = "Interface\\Buttons\\WHITE8x8",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            edgeSize = 1
-        })
-        pBar:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-        pBar:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-        
-        -- Text for progress bar
-        pBar.Text = pBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        pBar.Text:SetPoint("CENTER", pBar, "CENTER", 0, 0)
-        pBar.Text:SetTextColor(1, 1, 1, 1)
-        
-        -- Update progress bar
-        local percentage = totalMounts > 0 and (collectedMounts / totalMounts) * 100 or 0
-        pBar:SetValue(percentage)
-        pBar.Text:SetText(string.format("%d/%d (%d%%)", collectedMounts, totalMounts, percentage))
-        
-        -- Use the UpdateProgressBar function for consistent coloring
-        pBar.val = percentage
-        UpdateProgressBar(pBar, totalMounts, collectedMounts)
-        
-        -- Store this progress bar in the statusBarFrames table for settings updates
-        table.insert(PCLcore.statusBarFrames, pBar)
-        
-        -- Mount grid within category - positioned below progress bar
-        local mountStartY = -60  -- More padding below progress bar
-        
-        -- Use the same calculations as in height calculation for consistency
-        local categoryPadding = 20  -- Total padding (10px on each side)
-        local availableMountWidth = columnWidth - categoryPadding
-        
-        -- Start with user's preferred pets per row
-        local mountsPerRow = PCL_SETTINGS.PetsPerRow or 12  -- Use setting or default to 12
-        -- Ensure it's within bounds
-        mountsPerRow = math.max(6, math.min(mountsPerRow, 24))
-        
-        -- Calculate mount size to fit exactly within available width
-        local desiredSpacing = 4  -- Fixed spacing between mounts
-        local minMountSize = 16  -- Absolute minimum mount size (reduced from 24)
-        local maxMountSize = 48  -- Maximum mount size
-        
-        -- Try the preferred mounts per row first
-        local totalSpacingWidth = desiredSpacing * (mountsPerRow - 1)
-        local availableForMounts = availableMountWidth - totalSpacingWidth
-        local mountSize = math.floor(availableForMounts / mountsPerRow)
-        
-        -- If mount size is too small, reduce mounts per row until we get acceptable size
-        while mountSize < minMountSize and mountsPerRow > 6 do
-            mountsPerRow = mountsPerRow - 1
-            totalSpacingWidth = desiredSpacing * (mountsPerRow - 1)
-            availableForMounts = availableMountWidth - totalSpacingWidth
-            mountSize = math.floor(availableForMounts / mountsPerRow)
-        end
-        
-        -- Ensure mount size is within bounds
-        mountSize = math.max(minMountSize, math.min(mountSize, maxMountSize))
-        
-        -- Recalculate actual spacing to center the grid
-        local actualMountWidth = mountSize * mountsPerRow
-        local actualSpacing = mountsPerRow > 1 and math.floor((availableMountWidth - actualMountWidth) / (mountsPerRow - 1)) or 0
-        actualSpacing = math.max(1, actualSpacing)  -- Minimum 1px spacing (reduced from 2)
-        
-        -- Y-axis spacing (only affected by height changes)
-        local rowSpacing = 4  -- Minimal Y-axis spacing between rows
-        
-        local maxDisplayMounts = displayedMounts  -- Show all displayed mounts instead of limiting to 24
-        local mountStartX = 10
-        local displayedIndex = 0  -- Track the actual displayed position
-        
-        for i, mountId in ipairs(mountList) do
-            -- Check if we should skip this mount due to hide collected mounts setting
-            local mount_Id = PCLcore.Function:GetPetID(mountId)
-            -- Faction check: Only display pets that are not faction-specific or match the player's faction
-            local faction, faction_specific = PCLcore.Function.IsPetFactionSpecific(mountId)
-            local playerFaction = UnitFactionGroup("player")
-            local allowed = false
-            if faction_specific == false then
-                allowed = true
-            elseif faction_specific == true then
-                if faction == 0 then faction = "Horde" elseif faction == 1 then faction = "Alliance" end
-                allowed = (faction == playerFaction)
-            end
-            if allowed and not (mount_Id and PCL_SETTINGS.hideCollectedPets and IsPetCollected(tonumber(mount_Id))) then
-                displayedIndex = displayedIndex + 1
-                if displayedIndex <= maxDisplayMounts then
-                local col = ((displayedIndex-1) % mountsPerRow)
-                local row = math.floor((displayedIndex-1) / mountsPerRow)
-                
-                -- Calculate exact position for this icon
-                local iconX = mountStartX + col * (mountSize + actualSpacing)
-                local iconY = mountStartY - row * (mountSize + rowSpacing)  -- Use rowSpacing for Y
-                
-                -- Get pet info first to check if pet exists before creating any frames
-                if mount_Id and (type(mount_Id) == "number" or type(mount_Id) == "string") and tonumber(mount_Id) and tonumber(mount_Id) > 0 then
-                    local petSpeciesID = tonumber(mount_Id)
-                    local petName, icon, petType, companionID, tooltipSource, tooltipDescription, isWild, canBattle, isTradeable, isUnique, obtainable = C_PetJournal.GetPetInfoBySpeciesID(petSpeciesID)
-                    -- Skip pets that don't exist (return nil from GetPetInfoBySpeciesID)
-                    if obtainable ~= nil then
-                        -- Create backdrop frame first (smaller than spacing to create visual gaps) - only if pet exists
-                        local backdropSize = mountSize + 2  -- Only 1px overhang on each side for visual separation
-                        local backdropFrame = CreateFrame("Frame", nil, categoryFrame, "BackdropTemplate")
-                        backdropFrame:SetSize(backdropSize, backdropSize)
-                        backdropFrame:SetPoint("TOPLEFT", categoryFrame, "TOPLEFT", 
-                            iconX - 1, -- Minimal offset for overhang
-                            iconY + 1) -- Minimal offset for overhang
-                        
-                        -- Store the pet ID for search functionality
-                        backdropFrame.petID = mountId
-                        -- Create pet frame (for icon) centered in backdrop only if pet exists
-                        local petFrame = CreateFrame("Button", nil, backdropFrame)
-                        petFrame:SetSize(mountSize, mountSize)
-                        petFrame:SetPoint("CENTER", backdropFrame, "CENTER", 0, 0)
-                        
-                        -- Store the pet ID for search functionality
-                        petFrame.petID = mountId
-                        
-                        -- Set category and section for pinning functionality
-                        petFrame.category = categoryData.name or categoryName
-                        petFrame.section = sectionName or "Unknown"
-                        
-                        if icon then
-                            -- Create the icon texture
-                            petFrame.tex = petFrame:CreateTexture(nil, "ARTWORK")
-                            petFrame.tex:SetAllPoints(petFrame)
-                            petFrame.tex:SetTexture(icon)
-                            
-                            -- Create pin icon for this mount frame
-                            petFrame.pin = petFrame:CreateTexture(nil, "OVERLAY")
-                            petFrame.pin:SetWidth(16)
-                            petFrame.pin:SetHeight(16)
-                            petFrame.pin:SetTexture("Interface\\AddOns\\PCL\\icons\\pin.blp")
-                            petFrame.pin:SetPoint("TOPRIGHT", petFrame, "TOPRIGHT", 6, 6)
-                            
-                            -- Check if this pet is pinned and set pin visibility
-                            local pin_check = PCLcore.Function:CheckIfPinned("p"..petSpeciesID)
-                            if pin_check == true then
-                                petFrame.pin:SetAlpha(1)
-                            else
-                                petFrame.pin:SetAlpha(0)
-                            end
-                            
-                            -- Check if pet is collected and style backdrop accordingly
-                            if IsPetCollected(petSpeciesID) then
-                                -- Collected pet styling - green background with thick border
-                                petFrame.tex:SetVertexColor(1, 1, 1, 1)
-                                backdropFrame:SetBackdrop({
-                                    bgFile = "Interface\\Buttons\\WHITE8x8",
-                                    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-                                    edgeSize = 3  -- Thicker border
-                                })
-                                backdropFrame:SetBackdropColor(0, 0.8, 0, 0.6)  -- Brighter green background
-                                backdropFrame:SetBackdropBorderColor(0, 1, 0, 1)  -- Bright green border
-                            else
-                                -- Uncollected pet styling - red/dark background
-                                petFrame.tex:SetVertexColor(0.4, 0.4, 0.4, 0.7)
-                                backdropFrame:SetBackdrop({
-                                    bgFile = "Interface\\Buttons\\WHITE8x8",
-                                    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-                                    edgeSize = 2  -- Slightly thinner border for uncollected
-                                })
-                                backdropFrame:SetBackdropColor(0.3, 0.1, 0.1, 0.4)  -- Reddish background
-                                backdropFrame:SetBackdropBorderColor(0.6, 0.2, 0.2, 0.8)  -- Red border
-                            end
-                            
-                            -- Add pet interaction to the pet frame
-                            if PCLcore.Function and PCLcore.Function.LinkPetItem then
-                                -- Ensure we pass the proper pet ID format with "p" prefix
-                                local petID = "p" .. petSpeciesID
-                                PCLcore.Function:LinkPetItem(petID, petFrame, false)
-                            end
-                        end -- Close if icon
-                    end -- Close if petName (pet exists)
-                end -- Close if mount_Id validation
-                end  -- Close the if block for displayedIndex <= maxDisplayMounts
-            else
-                -- Debug logging for skipped mounts
-                if PCLcore.Debug then
-                    local isCollected = mount_Id and IsPetCollected(tonumber(mount_Id))
-                    local reason = ""
-                    if not allowed then
-                        reason = "Faction restriction"
-                    elseif mount_Id and PCL_SETTINGS.hideCollectedPets and isCollected then
-                        reason = "Hidden collected pet"
-                    else
-                        reason = "Unknown reason"
+                                -- Attach PetCard hover handlers (once) so hovering an icon shows the PetCard
+                                if petFrame and not petFrame._petCardHooked then
+                                    petFrame.speciesID = petSpeciesID
+                                    petFrame:HookScript("OnEnter", function(self)
+                                        if PCL_SETTINGS and PCL_SETTINGS.enablePetCardOnHover and PCLcore and PCLcore.PetCard and PCLcore.PetCard.ShowAsTooltip then
+                                            PCLcore.PetCard:ShowAsTooltip(self.speciesID, self)
+                                        end
+                                    end)
+                                    petFrame._petCardHooked = true
+                                end
+                            end -- Close if icon
+                        end -- Close if petName (pet exists)
+                    end -- Close if mount_Id validation
+                else
+                    -- Debug logging for skipped mounts
+                    if PCLcore.Debug then
+                        local isCollected = mount_Id and IsPetCollected(tonumber(mount_Id))
+                        local reason = ""
+                        if not allowed then
+                            reason = "Faction restriction"
+                        elseif mount_Id and PCL_SETTINGS.hideCollectedPets and isCollected then
+                            reason = "Hidden collected pet"
+                        else
+                            reason = "Unknown reason"
+                        end
                     end
                 end
-            end
-        end  -- Close the for loop
-        
-        -- Update column positions for next category
-        if isLeftColumn then
-            leftColumnY = leftColumnY - (categoryHeight + 8)  -- Reduced spacing between categories
-        else
-            rightColumnY = rightColumnY - (categoryHeight + 8)  -- Reduced spacing between categories
+            end  -- Close the for loop
+            
         end
-        
     end
 end
-    
     -- Adjust parent frame height to accommodate all categories with proper padding
     local maxY = math.min(leftColumnY, rightColumnY)
     local requiredHeight = math.abs(maxY) + 20  -- Reduced padding for tighter layout
+    
+    -- Debug final frame sizing
+    if PCLcore and PCLcore.Debug then
+        print(string.format("[PCL Debug] Final frame sizing:"))
+        print(string.format("[PCL Debug] - leftColumnY: %d, rightColumnY: %d", leftColumnY, rightColumnY))
+        print(string.format("[PCL Debug] - maxY: %d, requiredHeight: %d", maxY, requiredHeight))
+    end
+    
     relativeFrame:SetHeight(requiredHeight)
 end
 
--- Helper function to get current frame dimensions
+function PCL_frames:createSettingsFrame(relativeFrame)
+    local currentWidth = select(1, PCL_frames:GetCurrentFrameDimensions())
+    local availableWidth = currentWidth - 60
+    local frame = CreateFrame("Frame", nil, relativeFrame, "BackdropTemplate")
+    frame:SetWidth(availableWidth)
+    frame:SetHeight(900)
+    frame:SetPoint("TOPLEFT", relativeFrame, "TOPLEFT", 30, 0)
+    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    frame.title:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -15)
+    frame.title:SetText(L("Settings"))
+    -- Updated to purple theme
+    frame.title:SetTextColor(0.6,0.2,0.8,1)
+    frame.name = "Settings"
+
+    -- Two columns (match MCL spacing)
+    local columnWidth = math.floor((availableWidth - 80) / 2) -- give more gutter
+    local leftColumn = CreateFrame("Frame", nil, frame)
+    leftColumn:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -50)
+    leftColumn:SetSize(columnWidth, 820)
+    local rightColumn = CreateFrame("Frame", nil, frame)
+    rightColumn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -50)
+    rightColumn:SetSize(columnWidth, 820)
+
+    local leftY, rightY = 0, 0
+    local sectionSpacing = 10
+
+    local function AddSectionHeader(parent, text, isRight)
+        local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetFont("Fonts\\FRIZQT__.TTF", 14, "OUTLINE")
+        fs:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, isRight and rightY or leftY)
+        fs:SetText(text)
+        -- Purple instead of cyan
+        fs:SetTextColor(0.6,0.2,0.8,1)
+        if isRight then rightY = rightY - 30 else leftY = leftY - 30 end
+        return fs
+    end
+
+    -- Checkbox style similar to MCL (white text, optional highlight color when checked)
+    local function StyleCheckBox(cb, textFS)
+        if not cb then return end
+        -- Avoid starting a statement with a parenthesized expression to prevent
+        -- 'ambiguous syntax (function call x new statement)' parser error.
+        local target = textFS or cb.Text
+        if not target then return end
+        target:SetFontObject(GameFontHighlight)
+        target:SetTextColor(0.9,0.9,0.9,1)
+    end
+
+    local function AddCheckbox(parent, label, key, tooltip, onChange, isRight)
+        local yRef = isRight and rightY or leftY
+        local cb = CreateFrame("CheckButton", nil, parent)
+        cb:SetSize(20,20)
+        cb:SetPoint("TOPLEFT", parent, "TOPLEFT", 5, yRef)
+        cb:SetChecked(PCL_SETTINGS[key])
+        cb.bg = cb:CreateTexture(nil, "BACKGROUND")
+        cb.bg:SetAllPoints(cb)
+        -- Base (off) color dark gray
+        cb.bg:SetColorTexture(0.2,0.2,0.2,1)
+        -- When checked fill purple (no tick texture)
+        local function UpdateFill()
+            if cb:GetChecked() then
+                cb.bg:SetColorTexture(0.6,0.2,0.8,1)
+            else
+                cb.bg:SetColorTexture(0.2,0.2,0.2,1)
+            end
+        end
+        UpdateFill()
+        local text = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        text:SetPoint("LEFT", cb, "RIGHT", 8, 0)
+        text:SetText(label)
+        StyleCheckBox(cb, text)
+        cb:SetScript("OnClick", function(self)
+            local v = self:GetChecked() and true or false
+            PCL_SETTINGS[key] = v
+            UpdateFill()
+            if onChange then onChange(v) end
+        end)
+        if tooltip then
+            cb:HookScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(label,1,1,1)
+                GameTooltip:AddLine(tooltip,0.8,0.8,0.8,true)
+                GameTooltip:Show()
+            end)
+            cb:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        end
+        if isRight then rightY = rightY - 35 else leftY = leftY - 35 end
+        return cb
+    end
+
+    -- MCL-like slider (label above with current value, grey track, cyan thumb area, min/max underneath, optional input box)
+    local function AddSlider(parent, label, key, minV, maxV, step, isRight, isPercent, withInputBox, onChange)
+        local yRef = isRight and rightY or leftY
+        local current = PCL_SETTINGS[key] or minV
+        if current < minV then current = minV elseif current > maxV then current = maxV end
+        PCL_SETTINGS[key] = current
+
+        local valueText = isPercent and (math.floor(current*100+0.5).."%") or tostring(math.floor(current))
+        local lbl = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        lbl:SetPoint("TOPLEFT", parent, "TOPLEFT", 5, yRef)
+        lbl:SetText((label or "") .. ": " .. valueText)
+        lbl:SetTextColor(0.9,0.9,0.9,1)
+        yRef = yRef - 25
+
+        local slider = CreateFrame("Slider", nil, parent)
+        slider:SetPoint("TOPLEFT", parent, "TOPLEFT", 5, yRef)
+        slider:SetOrientation("HORIZONTAL")
+        slider:SetMinMaxValues(minV, maxV)
+        slider:SetValue(current)
+        slider:SetValueStep(step)
+        slider:SetObeyStepOnDrag(true)
+        slider:SetWidth(200)
+        slider:SetHeight(20)
+
+        -- Track (transparent now, remove gray background)
+        local track = slider:CreateTexture(nil, "BACKGROUND")
+        track:SetAllPoints(slider)
+        track:SetColorTexture(0,0,0,0)
+
+        -- Fill now purple
+        local fill = slider:CreateTexture(nil, "ARTWORK")
+        fill:SetPoint("LEFT", slider, "LEFT", 0, 0)
+        fill:SetHeight(4)
+        fill:SetColorTexture(0.6,0.2,0.8,1)
+        fill:SetPoint("CENTER", slider, "CENTER", 0, 0) -- center thin line
+
+        local thumb = slider:CreateTexture(nil, "OVERLAY")
+        thumb:SetTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
+        thumb:SetSize(24,24)
+        slider:SetThumbTexture(thumb)
+
+        -- Min/Max labels
+        local minLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        minLabel:SetPoint("LEFT", slider, "LEFT", 0, -20)
+        minLabel:SetText(isPercent and (math.floor(minV*100).."%") or tostring(minV))
+        minLabel:SetTextColor(0.7,0.7,0.7,1)
+        local maxLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        maxLabel:SetPoint("RIGHT", slider, "RIGHT", 0, -20)
+        maxLabel:SetText(isPercent and (math.floor(maxV*100).."%") or tostring(maxV))
+        maxLabel:SetTextColor(0.7,0.7,0.7,1)
+
+        local edit
+        if withInputBox then
+            edit = CreateFrame("EditBox", nil, parent, "BackdropTemplate")
+            edit:SetSize(40,20)
+            edit:SetPoint("LEFT", slider, "RIGHT", 10, 0)
+            edit:SetAutoFocus(false)
+            edit:SetFontObject(GameFontHighlightSmall)
+            edit:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 8 })
+            edit:SetBackdropColor(0.07,0.07,0.07,0.95)
+            edit:SetBackdropBorderColor(0.4,0.6,0.8,0.8)
+            local function setEdit(val)
+                if isPercent then edit:SetText(math.floor(val*100+0.5)) else edit:SetText(math.floor(val)) end
+            end
+            setEdit(current)
+            edit:SetScript("OnEscapePressed", function(self) self:ClearFocus(); setEdit(slider:GetValue()) end)
+            edit:SetScript("OnEnterPressed", function(self)
+                local txt = self:GetText():gsub("%%", "")
+                local num = tonumber(txt)
+                if num then
+                    if isPercent then num = num/100 end
+                    if num < minV then num = minV elseif num > maxV then num = maxV end
+                    if step and step>0 then num = math.floor((num-minV)/step+0.5)*step + minV end
+                    slider:SetValue(num)
+                end
+                self:ClearFocus()
+            end)
+        end
+
+        local function UpdateFill(val)
+            local pct = (val - minV)/(maxV - minV)
+            if pct < 0 then pct = 0 elseif pct > 1 then pct = 1 end
+            fill:ClearAllPoints()
+            fill:SetPoint("LEFT", slider, "LEFT", 0, 0)
+            fill:SetPoint("RIGHT", slider, "LEFT", slider:GetWidth()*pct, 0)
+        end
+        slider:SetScript("OnValueChanged", function(self, val)
+            if isPercent then
+                lbl:SetText(label .. ": " .. math.floor(val*100+0.5) .. "%")
+            else
+                lbl:SetText(label .. ": " .. math.floor(val))
+            end
+            PCL_SETTINGS[key] = val
+            if edit then if isPercent then edit:SetText(math.floor(val*100+0.5)) else edit:SetText(math.floor(val)) end end
+            UpdateFill(val)
+            if onChange then onChange(val) end
+        end)
+        slider:SetScript("OnSizeChanged", function(self) UpdateFill(self:GetValue()) end)
+        UpdateFill(current)
+
+        if isRight then rightY = yRef - 45 else leftY = yRef - 45 end
+        return slider
+    end
+
+    ------------------------------------------------------------------
+    -- LEFT COLUMN
+    ------------------------------------------------------------------
+    AddSectionHeader(leftColumn, L("Theme"), false)
+    AddCheckbox(leftColumn, L("Use Blizzard Theme"), "useBlizzardTheme", L("Switches the window to a Blizzard styled theme"), function()
+        if PCL_frames.RefreshLayout then PCL_frames:RefreshLayout() end
+    end, false)
+
+    AddSectionHeader(leftColumn, L("Display Options"), false)
+    AddCheckbox(leftColumn, L("Hide Collected Pets"), "hideCollectedPets", L("Do not show pets you have already collected"), function()
+        if PCL_frames.RefreshLayout then PCL_frames:RefreshLayout() end
+    end, false)
+    AddCheckbox(leftColumn, L("Enable Pet Card on Hover"), "enablePetCardOnHover", L("Show pet card when hovering pet icons"), nil, false)
+
+    AddSectionHeader(leftColumn, L("Layout Options"), false)
+    AddSlider(leftColumn, L("Pets Per Row"), "PetsPerRow", 6, 24, 1, false, false, true, function()
+        if PCL_frames.RefreshLayout then PCL_frames:RefreshLayout() end
+    end)
+
+    ------------------------------------------------------------------
+    -- RIGHT COLUMN
+    ------------------------------------------------------------------
+    AddSectionHeader(rightColumn, L("Progress Bar Options"), true)
+
+    -- (Texture dropdown retained)
+    -- Try to acquire LibSharedMedia dynamically if not already cached
+    if not PCLcore.media and LibStub then
+        local ok, lib = pcall(LibStub, "LibSharedMedia-3.0")
+        if ok and lib then PCLcore.media = lib end
+    end
+    if not PCLcore.media and not PCLcore._lsmListenerCreated then
+        local lsmWaiter = CreateFrame("Frame")
+        lsmWaiter:RegisterEvent("ADDON_LOADED")
+        lsmWaiter:SetScript("OnEvent", function(self)
+            if LibStub then
+                local ok, lib = pcall(LibStub, "LibSharedMedia-3.0")
+                if ok and lib then
+                    PCLcore.media = lib
+                    PCLcore._lsmListenerCreated = true
+                    if PCL_frames.RefreshLayout then PCL_frames:RefreshLayout() end
+                    self:UnregisterEvent("ADDON_LOADED")
+                end
+            end
+        end)
+        PCLcore._lsmListenerCreated = true
+    end
+
+    if PCLcore.media then
+        -- Existing advanced texture dropdown code retained
+        local containerWidth = rightColumn:GetWidth()
+        local dropdownContainer = CreateFrame("Button", nil, rightColumn, "BackdropTemplate")
+        dropdownContainer:SetPoint("TOPLEFT", rightColumn, "TOPLEFT", 0, rightY)
+        dropdownContainer:SetSize(containerWidth - 10, 40)
+        dropdownContainer:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 16,
+            insets = { left = 4, right = 4, top = 4, bottom = 4 }
+        })
+        dropdownContainer:SetBackdropColor(0.08,0.08,0.08,0.9)
+        dropdownContainer:SetBackdropBorderColor(0.3,0.5,0.7,1)
+
+        local selectedPreview = dropdownContainer:CreateTexture(nil, "ARTWORK")
+        selectedPreview:SetPoint("LEFT", dropdownContainer, "LEFT", 8, 0)
+        selectedPreview:SetSize(containerWidth - 120, 18)
+        local selectedText = dropdownContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        selectedText:SetPoint("CENTER", selectedPreview, "CENTER", 0, 0)
+        selectedText:SetTextColor(1,1,1,1)
+
+        local dropdownArrow = dropdownContainer:CreateTexture(nil, "OVERLAY")
+        dropdownArrow:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
+        dropdownArrow:SetSize(16,16)
+        dropdownArrow:SetPoint("RIGHT", dropdownContainer, "RIGHT", -8, 0)
+
+        local dropdownList = CreateFrame("Frame", nil, rightColumn, "BackdropTemplate")
+        dropdownList:SetSize(containerWidth - 10, 230)
+        dropdownList:SetPoint("TOPLEFT", dropdownContainer, "BOTTOMLEFT", 0, -2)
+        dropdownList:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 16,
+            insets = { left = 4, right = 4, top = 4, bottom = 4 }
+        })
+        dropdownList:SetBackdropColor(0.05,0.05,0.05,0.95)
+        dropdownList:SetBackdropBorderColor(0.3,0.5,0.7,1)
+        dropdownList:Hide()
+        dropdownList:SetFrameStrata("DIALOG")
+
+        local scrollFrame = CreateFrame("ScrollFrame", nil, dropdownList, "BackdropTemplate")
+        scrollFrame:SetPoint("TOPLEFT", dropdownList, "TOPLEFT", 8, -8)
+        scrollFrame:SetSize(containerWidth - 36, 214)
+        local scrollChild = CreateFrame("Frame", nil, scrollFrame)
+        scrollFrame:SetScrollChild(scrollChild)
+
+        local textures = PCLcore.media:List("statusbar") or {}
+        table.sort(textures)
+        local buttonHeight = 28
+        scrollChild:SetSize(containerWidth - 60, math.max(#textures * buttonHeight + 10, 214))
+
+        scrollFrame:EnableMouseWheel(true)
+        scrollFrame:SetScript("OnMouseWheel", function(self, delta)
+            local cur = self:GetVerticalScroll()
+            local max = math.max(0, scrollChild:GetHeight() - self:GetHeight())
+            self:SetVerticalScroll(math.max(0, math.min(max, cur - delta*30)))
+        end)
+
+        for i, texName in ipairs(textures) do
+            local btn = CreateFrame("Button", nil, scrollChild, "BackdropTemplate")
+            btn:SetSize(scrollChild:GetWidth()-10, buttonHeight-2)
+            btn:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 5, -(i-1)*buttonHeight - 5)
+            btn:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
+            btn:SetBackdropColor(0.1,0.1,0.1,0.3)
+            local preview = btn:CreateTexture(nil, "ARTWORK")
+            preview:SetPoint("LEFT", btn, "LEFT", 6, 0)
+            preview:SetSize(scrollChild:GetWidth()-140, 14)
+            local file = PCLcore.media:Fetch("statusbar", texName)
+            if file then preview:SetTexture(file) end
+            local nameText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            nameText:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
+            nameText:SetText(texName)
+            btn:SetScript("OnEnter", function(self) self:SetBackdropColor(0.2,0.5,0.8,0.5) end)
+            btn:SetScript("OnLeave", function(self)
+                if PCL_SETTINGS.statusBarTexture == texName then
+                    self:SetBackdropColor(0.2,0.6,1,0.4)
+                else
+                    self:SetBackdropColor(0.1,0.1,0.1,0.3)
+                end
+            end)
+            btn:SetScript("OnClick", function()
+                PCL_SETTINGS.statusBarTexture = texName
+                selectedText:SetText(texName)
+                if file then selectedPreview:SetTexture(file) end
+                dropdownList:Hide()
+                -- Update all progress bars instantly
+                if PCLcore.statusBarFrames then
+                    for _, bar in ipairs(PCLcore.statusBarFrames) do
+                        if bar and bar.SetStatusBarTexture then
+                            local newFile = PCLcore.media:Fetch("statusbar", texName)
+                            if newFile then bar:SetStatusBarTexture(newFile) end
+                        end
+                    end
+                end
+            end)
+            if PCL_SETTINGS.statusBarTexture == texName then
+                btn:SetBackdropColor(0.2,0.6,1,0.4)
+            end
+        end
+        local currentTex = PCL_SETTINGS.statusBarTexture
+        selectedText:SetText(currentTex)
+        local curFile = PCLcore.media:Fetch("statusbar", currentTex)
+        if curFile then selectedPreview:SetTexture(curFile) end
+        dropdownContainer:SetScript("OnMouseDown", function()
+            if dropdownList:IsShown() then dropdownList:Hide() else dropdownList:Show() end
+        end)
+        frame:HookScript("OnMouseDown", function() if dropdownList:IsShown() then dropdownList:Hide() end end)
+        rightY = rightY - 60
+    else
+        local note = rightColumn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        note:SetPoint("TOPLEFT", rightColumn, "TOPLEFT", 5, rightY)
+        note:SetText(L("LibSharedMedia not available - using default texture"))
+        note:SetTextColor(0.8,0.4,0.4,1)
+        rightY = rightY - 30
+    end
+
+    AddSectionHeader(rightColumn, L("Window Opacity"), true)
+    AddSlider(rightColumn, L("Opacity"), "opacity", 0.1, 1.0, 0.05, true, true, true, function(val)
+        if PCL_mainFrame and PCL_mainFrame.Bg then PCL_mainFrame.Bg:SetVertexColor(0,0,0,val) end
+    end)
+
+    AddSectionHeader(rightColumn, L("Utilities"), true)
+    -- (Reset button retained)
+    -- Styled reset button with confirmation popup
+    local resetBtn = CreateFrame("Button", nil, rightColumn, "BackdropTemplate")
+    resetBtn:SetSize(150, 34)
+    resetBtn:SetPoint("TOPLEFT", rightColumn, "TOPLEFT", 0, rightY)
+    resetBtn:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 }
+    })
+    resetBtn:SetBackdropColor(0.6,0.1,0.1,0.85)
+    resetBtn:SetBackdropBorderColor(0.8,0.2,0.2,1)
+    local resetText = resetBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    resetText:SetPoint("CENTER", resetBtn, "CENTER")
+    resetText:SetText(L("Reset Settings"))
+
+    resetBtn:SetScript("OnEnter", function(self) self:SetBackdropColor(0.8,0.2,0.2,0.9) end)
+    resetBtn:SetScript("OnLeave", function(self) self:SetBackdropColor(0.6,0.1,0.1,0.85) end)
+    resetBtn:SetScript("OnMouseDown", function(self) self:SetBackdropColor(0.4,0.1,0.1,0.9) end)
+    resetBtn:SetScript("OnMouseUp", function(self) self:SetBackdropColor(0.8,0.2,0.2,0.9) end)
+
+    StaticPopupDialogs = StaticPopupDialogs or {}
+    StaticPopupDialogs["PCL_RESET_SETTINGS"] = {
+        text = L("Are you sure you want to reset all PCL settings?"),
+        button1 = YES,
+        button2 = NO,
+        OnAccept = function()
+            PCL_SETTINGS.useBlizzardTheme = false
+            PCL_SETTINGS.hideCollectedPets = false
+            PCL_SETTINGS.PetsPerRow = 12
+            PCL_SETTINGS.opacity = 0.95
+            PCL_SETTINGS.statusBarTexture = "Blizzard"
+            PCL_SETTINGS.enablePetCardOnHover = true
+            if PCL_frames.RefreshLayout then PCL_frames:RefreshLayout() end
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+    resetBtn:SetScript("OnClick", function() StaticPopup_Show("PCL_RESET_SETTINGS") end)
+    rightY = rightY - 50
+
+    return frame
+end
+
+-- Utility: current frame dimensions (fallback to defaults if not yet created)
 function PCL_frames:GetCurrentFrameDimensions()
-    if PCL_mainFrame then
-        local width = PCL_mainFrame:GetWidth()
-        local height = PCL_mainFrame:GetHeight()
-        return width, height
+    if PCL_mainFrame and PCL_mainFrame.GetSize then
+        local w, h = PCL_mainFrame:GetSize()
+        if w and h and w > 0 and h > 0 then
+            return w, h
+        end
     end
-    return main_frame_width, main_frame_height  -- Fallback to defaults
+    return main_frame_width, main_frame_height
 end
 
--- Function to refresh layout after resize
-function PCL_frames:RefreshLayout()
-    if not PCL_mainFrame then return end
-    
-    -- Remember which tab was selected before refresh
-    local selectedTabName = nil
-    local wasShowingSearchResults = false
-    local navFrame = PCLcore.PCL_MF_Nav
-    if navFrame and navFrame.tabs then
-        for _, tab in ipairs(navFrame.tabs) do
-            if tab.content and tab.content:IsShown() then
-                selectedTabName = tab.section and tab.section.name
-                break
-            end
-        end
-        -- Check if search results are currently being shown
-        if PCLcore.searchResultsContent and PCLcore.searchResultsContent:IsShown() then
-            wasShowingSearchResults = true
-        end
+-- Open internal Settings tab (fallback to Blizzard Settings if tab unavailable)
+function PCL_frames:openSettings()
+    -- Ensure main frame exists and is visible
+    if not PCL_mainFrame then
+        if self.CreateMainFrame then self:CreateMainFrame() end
     end
-    
-    -- Update scroll frame size
-    PCL_mainFrame.ScrollFrame:ClearAllPoints()
-    PCL_mainFrame.ScrollFrame:SetPoint("TOPLEFT", PCL_mainFrame, "TOPLEFT", 10, -40)
-    PCL_mainFrame.ScrollFrame:SetPoint("BOTTOMRIGHT", PCL_mainFrame, "BOTTOMRIGHT", -10, 10)
-    
-    -- Update scroll child size
-    if PCL_mainFrame.ScrollChild then
-        local currentWidth, currentHeight = PCL_frames:GetCurrentFrameDimensions()
-        PCL_mainFrame.ScrollChild:SetSize(currentWidth, currentHeight)
+    if PCL_mainFrame and not PCL_mainFrame:IsShown() then
+        PCL_mainFrame:Show()
     end
-    
-    -- Update navigation frame height to match main frame
-    if PCLcore.PCL_MF_Nav then
-        local _, currentHeight = PCL_frames:GetCurrentFrameDimensions()
-        PCLcore.PCL_MF_Nav:SetHeight(currentHeight)
+    -- Build tabs if not yet built
+    if (not PCLcore.PCL_MF_Nav) or (not PCLcore.PCL_MF_Nav.tabs) or (#PCLcore.PCL_MF_Nav.tabs == 0) then
+        if self.SetTabs then self:SetTabs() end
     end
-    
-    -- Recreate tabs with new dimensions
-    if PCL_frames.SetTabs then
-        PCL_frames:SetTabs()
-        
-        -- Recreate search results content frame if it exists and is currently showing
-        if PCLcore.searchResultsContent and wasShowingSearchResults then
-            -- If search is active, recreate the search results with new dimensions
-            if PCLcore.Search and PCLcore.Search.isSearchActive then
-                C_Timer.After(0.1, function()
-                    PCLcore.Search:RecreateSearchResultsFrame()
-                end)
-            end
-        end
-        
-        -- If we're on the overview page, we need to refresh it since it has dynamic content
-        if selectedTabName == "Overview" and PCLcore.overview then
-            -- Clear existing overview content more thoroughly
-            local children = {PCLcore.overview:GetChildren()}
-            for i = 1, #children do
-                local child = children[i]
-                if child then
-                    child:Hide()
-                    child:ClearAllPoints()
-                    child:SetParent(nil)
-                end
-            end
-            
-            -- Clear the overview frames array to prevent duplicates
-            if PCLcore.overviewFrames then
-                PCLcore.overviewFrames = {}
-            end
-            
-            -- Recreate overview content with new dimensions
-            if PCLcore.sections and PCL_frames.createOverviewCategory then
-                PCL_frames:createOverviewCategory(PCLcore.sections, PCLcore.overview)
-            end
-        end
-        
-        -- Restore the previously selected tab (unless we're showing search results)
-        if selectedTabName and navFrame and navFrame.tabs and not wasShowingSearchResults then
-            for _, tab in ipairs(navFrame.tabs) do
-                if tab.section and tab.section.name == selectedTabName then
-                    -- Use the same selection logic as in SetTabs
-                    for _, t in ipairs(navFrame.tabs) do
-                        if t.content then t.content:Hide() end
-                        if t.SetBackdropBorderColor then
-                            t:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
-                        end
-                    end
-                    -- Also properly destroy search results content if it exists
-                    if PCLcore.Search and PCLcore.Search.DestroySearchResultsFrame then
-                        PCLcore.Search:DestroySearchResultsFrame()
-                    end
-                    if tab.SetBackdropBorderColor then
-                        tab:SetBackdropBorderColor(1, 0.82, 0, 1)
-                    end
-                    if PCL_mainFrame and PCL_mainFrame.ScrollFrame then
-                        -- Always keep the main scroll child as the scroll child
-                        PCL_mainFrame.ScrollFrame:SetScrollChild(PCL_mainFrame.ScrollChild)
-                        if tab.content then
-                            tab.content:Show()
-                        end
-                        PCL_mainFrame.ScrollFrame:SetVerticalScroll(0)
-                    end
-                    break
-                end
+    -- Try to locate Settings tab
+    if PCLcore.PCL_MF_Nav and PCLcore.PCL_MF_Nav.tabs then
+        for _, tab in ipairs(PCLcore.PCL_MF_Nav.tabs) do
+            if tab.section and tab.section.name == "Settings" and tab:GetScript("OnClick") then
+                tab:GetScript("OnClick")(tab)
+                return
             end
         end
     end
-    collectgarbage("collect")    
-end
-
-
-
--- Function to save frame size to settings
-function PCL_frames:SaveFrameSize()
-    if PCL_mainFrame and PCL_SETTINGS then
-        PCL_SETTINGS.frameWidth = PCL_mainFrame:GetWidth()
-        PCL_SETTINGS.frameHeight = PCL_mainFrame:GetHeight()
+    -- Fallback: open Blizzard's Settings category if available
+    if Settings and Settings.OpenToCategory and PCLcore.addon_name then
+        pcall(Settings.OpenToCategory, PCLcore.addon_name)
     end
-end
-
--- Function to restore frame size from settings
-function PCL_frames:RestoreFrameSize()
-    if PCL_mainFrame and PCL_SETTINGS then
-        local width = PCL_SETTINGS.frameWidth or main_frame_width
-       
-        local height = PCL_SETTINGS.frameHeight or main_frame_height
-        PCL_mainFrame:SetSize(width, height)
-    end
-end
-
--- Function to calculate minimum height based on navigation content
-function PCL_frames:CalculateMinHeight()
-    local baseHeight = 100  -- Base height for frame borders, title, etc.
-    local navStartY = -20   -- Starting Y position for nav items
-    local currentY = navStartY
-    
-    -- Calculate sections like in SetTabs
-    local sections = PCLcore.sectionsOrdered or PCLcore.sections
-    if not sections then
-        return baseHeight + 200  -- Fallback minimum
-    end
-    
-    local overviewSection, pinnedSection, expansionSections, otherSections = nil, nil, {}, {}
-    for _, v in ipairs(sections) do
-        if v.name == "Overview" then
-            overviewSection = v
-        elseif v.name == "Pinned" then
-            pinnedSection = v
-        elseif v.isExpansion then
-            table.insert(expansionSections, v)
-        else
-            table.insert(otherSections, v)
-        end
-    end
-    
-    -- 1. Overview section (32px height + 4px spacing)
-    if overviewSection then
-        currentY = currentY - 36
-    end
-    
-    -- 2. Expansion grid (calculate rows needed)
-    if #expansionSections > 0 then
-        local gridCols = 3
-        local iconSize = 36
-        local iconPad = 8
-        local gridRows = math.ceil(#expansionSections / gridCols)
-        local gridHeight = gridRows * (iconSize + iconPad)
-        currentY = currentY - gridHeight - 10  -- 10px spacing after grid
-    end
-    
-    -- 3. Other sections (28px each)
-    for _, v in ipairs(otherSections) do
-        currentY = currentY - 28
-    end
-    
-    -- 4. Pinned section (28px)
-    if pinnedSection then
-        currentY = currentY - 28
-    end
-    
-    -- Convert negative Y offset to positive height requirement
-    local requiredNavHeight = math.abs(currentY) + 40  -- 40px bottom padding
-    local totalMinHeight = baseHeight + requiredNavHeight
-    
-    return math.max(totalMinHeight, 300)  -- Ensure at least 300px minimum
 end

@@ -493,4 +493,23 @@ if L then
     L["Operation: Mechagon"] = "Operation: Mechagon"
     L["The Eternal Palace"] = "The Eternal Palace"
     L["Tazavesh"] = "Tazavesh"
+
+    L['Trading Post: August'] = "Trading Post: August"
+    L['Vibrating Box'] = "Vibrating Box"
+    L['Rare Drop'] = "Rare Drop"
+
+    L['Window Opacity'] = "Window Opacity"
+    L['Progress Bar Options'] = "Progress Bar Options"
+    L['Layout Options'] = "Layout Options"
+    L['Show pet card when hovering over pet icons'] = "Show pet card when hovering over pet icons"
+    L['Enable Pet Card on Hover'] = "Enable Pet Card on Hover"
+    L['Do not show pets you have already collected'] = "Do not show pets you have already collected"
+    L['Display Options'] = "Display Options"
+    L['Switches the window to a Blizzard styled theme'] = "Switches the window to a Blizzard styled theme"
+    L['Theme'] = "Theme"
+    L['Settings'] = "Settings"
+    L['Are you sure you want to reset all PCL settings?'] = "Are you sure you want to reset all PCL settings?"
+    L['Utilities'] = "Utilities"
+    L['Opacity'] = "Opacity"
+    L['Show pet card when hovering pet icons'] = "Show pet card when hovering pet icons"
 end

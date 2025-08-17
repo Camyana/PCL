@@ -284,30 +284,10 @@ function PCL_functions:resetToDefault(setting)
     end
     if setting == "Colors" or setting == nil then
         PCL_SETTINGS.progressColors = {
-            low = {
-                ["a"] = 1,
-                ["r"] = 0.929,
-                ["g"] = 0.007,
-                ["b"] = 0.019,
-            },
-            high = {
-                ["a"] = 1,
-                ["r"] = 0.1,
-                ["g"] = 0.9,
-                ["b"] = 0.1,
-            },
-            medium = {
-                ["a"] = 1,
-                ["r"] = 0.941,
-                ["g"] = 0.658,
-                ["b"] = 0.019,
-            },
-            complete = {
-                ["a"] = 1,
-                ["r"] = 0,
-                ["g"] = 0.5,
-                ["b"] = 0.9,
-            },
+            low = { ["a"] = 1, ["r"] = 0.929, ["g"] = 0.007, ["b"] = 0.019 },
+            high = { ["a"] = 1, ["r"] = 0.1, ["g"] = 0.9, ["b"] = 0.1 },
+            medium = { ["a"] = 1, ["r"] = 0.941, ["g"] = 0.658, ["b"] = 0.019 },
+            complete = { ["a"] = 1, ["r"] = 0, ["g"] = 0.5, ["b"] = 0.9 },
         }
     end
     if setting == "HideCollectedMounts" or setting == nil then
@@ -336,6 +316,10 @@ function PCL_functions:resetToDefault(setting)
     end
     if setting == "ShowOnlyRare" or setting == nil then
         PCL_SETTINGS.showOnlyRare = false
+    end
+    -- NEW: default enable PetCard on hover
+    if setting == "EnablePetCardOnHover" or setting == nil then
+        PCL_SETTINGS.enablePetCardOnHover = true
     end
 end
 
@@ -368,6 +352,11 @@ end
 
 if PCL_SETTINGS.showOnlyRare == nil then
     PCL_SETTINGS.showOnlyRare = false
+end
+
+-- NEW: ensure PetCard hover default
+if PCL_SETTINGS.enablePetCardOnHover == nil then
+    PCL_SETTINGS.enablePetCardOnHover = true
 end
 
 -- Tables Mounts into Global List
@@ -577,15 +566,14 @@ function PCL_functions:UpdateCollection()
     if PCLcore.Function and PCLcore.Function.GetCollectedPets then
         PCLcore.Function:GetCollectedPets()
     end
-    
-    -- Initialize stats table if needed
-    if not PCLcore.stats then
-        PCLcore.stats = {}
-    end
-    
-    -- Initialize Pinned section stats if needed
-    if not PCLcore.stats["Pinned"] then
-        PCLcore.stats["Pinned"] = { total = 0, collected = 0 }
+    if not PCLcore.stats then PCLcore.stats = {} end
+    if not PCLcore.stats["Pinned"] then PCLcore.stats["Pinned"] = { total = 0, collected = 0 } end
+    -- NEW: immediately (re)calculate stats and refresh overview progress bars when data available
+    if PCLcore.Function and PCLcore.Function.CalculateSectionStats and PCLcore.petList and next(PCLcore.petList) then
+        PCLcore.Function:CalculateSectionStats()
+        if PCLcore.Function.RefreshOverviewProgressBars then
+            PCLcore.Function:RefreshOverviewProgressBars()
+        end
     end
 end
 
@@ -656,6 +644,37 @@ function PCL_functions:CalculateSectionStats()
             total = #PCL_PINNED,
             collected = 0  -- Pinned pets don't have a collected count since they're just references
         }
+    end
+end
+
+-- NEW: helper to refresh overview progress bars without rebuilding UI
+function PCL_functions:RefreshOverviewProgressBars()
+    if not PCLcore.stats or not PCLcore.overviewFrames then return end
+    for _, of in ipairs(PCLcore.overviewFrames) do
+        local stats = PCLcore.stats[of.name]
+        local bar = of.frame
+        if stats and bar and stats.total and stats.collected then
+            local total = stats.total
+            local collected = stats.collected
+            local pct = (total > 0) and (collected/total)*100 or 0
+            bar:SetMinMaxValues(0,100)
+            bar:SetValue(pct)
+            if bar.Text then bar.Text:SetText(string.format("%d/%d (%d%%)", collected, total, math.floor(pct))) end
+            -- color logic
+            local c
+            if total == 0 then
+                c = {r=0.5,g=0.5,b=0.5}
+            elseif pct < 33 then
+                c = PCL_SETTINGS.progressColors.low
+            elseif pct < 66 then
+                c = PCL_SETTINGS.progressColors.medium
+            elseif pct < 100 then
+                c = PCL_SETTINGS.progressColors.high
+            else
+                c = PCL_SETTINGS.progressColors.complete
+            end
+            if c then bar:SetStatusBarColor(c.r,c.g,c.b) end
+        end
     end
 end
 
@@ -1078,7 +1097,9 @@ function PCL_functions:LinkPetItem(id, frame, pin)
         -- Add hover functionality for pet preview
         frame:SetScript("OnEnter", function(self)
             if PCLcore.Function.ShowPetPreview then
-                PCLcore.Function:ShowPetPreview(petSpeciesID, self)
+                if PCL_SETTINGS.enablePetCardOnHover == false then
+                    PCLcore.Function:ShowPetPreview(petSpeciesID, self)
+                end
             end
         end)
         
@@ -1565,3 +1586,64 @@ PCLcore.Function.ShouldFilterPetByQuality = PCL_functions.ShouldFilterPetByQuali
 if PCL_functions and PCL_functions.LinkPetItem then
     PCLcore.Function.LinkPetItem = PCL_functions.LinkPetItem
 end
+
+-- Settings / Options Panel Registration
+function PCL_functions:AddonSettings()
+    if PCLcore.settingsCategoryID then return end -- already registered
+    if not Settings or not Settings.RegisterCanvasLayoutCategory then return end -- API not available
+    if not PCL_SETTINGS then PCL_SETTINGS = {} end
+
+    local panel = CreateFrame("Frame")
+    panel.name = "PCLSettingsPanel"
+
+    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, -16)
+    title:SetText("Pet Collection Log")
+
+    local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
+    subtitle:SetText("Basic configuration")
+
+    local function CreateCheckbox(label, tooltip, settingKey, offsetY, requiresReload)
+        local cb = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
+        cb:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, offsetY)
+        cb.Text:SetText(label)
+        cb:SetChecked(PCL_SETTINGS[settingKey])
+        cb.tooltip = tooltip
+        cb:SetScript("OnClick", function(self)
+            PCL_SETTINGS[settingKey] = self:GetChecked() and true or false
+            if requiresReload then
+                StaticPopupDialogs["PCL_RELOAD_UI"] = {
+                    text = "Reload UI to apply this change?",
+                    button1 = YES,
+                    button2 = NO,
+                    OnAccept = function() ReloadUI() end,
+                    timeout = 0,
+                    whileDead = true,
+                    hideOnEscape = true,
+                }
+                StaticPopup_Show("PCL_RELOAD_UI")
+            else
+                if PCLcore.Function and PCLcore.Function.UpdateCollection then
+                    PCLcore.Function:UpdateCollection()
+                end
+                if PCLcore.Frames and PCLcore.Frames.RefreshLayout then
+                    PCLcore.Frames:RefreshLayout()
+                end
+            end
+        end)
+        return cb
+    end
+
+    CreateCheckbox("Hide Collected Pets", "Hide pets you already own", "hideCollectedPets", -16)
+    CreateCheckbox("Show Pet Quality Border", "Display quality color on collected pets", "showPetQuality", -48)
+    CreateCheckbox("Show Pet Level", "Show highest level owned for each pet", "showPetLevel", -80)
+    CreateCheckbox("Use Blizzard Theme", "Use Blizzard styled frames (requires reload)", "useBlizzardTheme", -112, true)
+    CreateCheckbox("Show Only Rare+ (Collected)", "Only show collected pets that are rare quality or better", "showOnlyRare", -144)
+
+    local category = Settings.RegisterCanvasLayoutCategory(panel, "PCL")
+    Settings.RegisterAddOnCategory(category)
+    PCLcore.settingsCategoryID = (category.GetID and category:GetID()) or category.ID
+end
+
+PCLcore.Function.AddonSettings = PCL_functions.AddonSettings

@@ -45,3 +45,7 @@ data-processing/
 dev-tools/
 docs/
 PCL.code-workspace
+
+.MCL/
+MCL/
+MCL
