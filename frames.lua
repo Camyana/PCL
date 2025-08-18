@@ -2130,6 +2130,29 @@ function PCL_frames:createSettingsFrame(relativeFrame)
         if PCL_frames.RefreshLayout then PCL_frames:RefreshLayout() end
     end, false)
     AddCheckbox(leftColumn, L("Enable Pet Card on Hover"), "enablePetCardOnHover", L("Show pet card when hovering pet icons"), nil, false)
+    
+    -- Add default for showMinimapIcon if not set
+    if PCL_SETTINGS.showMinimapIcon == nil then
+        PCL_SETTINGS.showMinimapIcon = true
+    end
+    
+    AddCheckbox(leftColumn, L("Show Minimap Icon"), "showMinimapIcon", L("Toggle the display of the Minimap Icon."), function(value)
+        -- Initialize minimapIcon table if needed
+        if not PCL_SETTINGS.minimapIcon then
+            PCL_SETTINGS.minimapIcon = {}
+        end
+        PCL_SETTINGS.minimapIcon.hide = not value
+        
+        -- Update the minimap icon if LibDBIcon is available
+        local LibDBIcon = LibStub("LibDBIcon-1.0", true)
+        if LibDBIcon then
+            if value then
+                LibDBIcon:Show("PCL")
+            else
+                LibDBIcon:Hide("PCL")
+            end
+        end
+    end, false)
 
     AddSectionHeader(leftColumn, L("Layout Options"), false)
     AddSlider(leftColumn, L("Pets Per Row"), "PetsPerRow", 6, 24, 1, false, false, true, function()
@@ -2323,6 +2346,15 @@ function PCL_frames:createSettingsFrame(relativeFrame)
                 PCL_SETTINGS.opacity = 0.95
                 PCL_SETTINGS.statusBarTexture = "Blizzard"
                 PCL_SETTINGS.enablePetCardOnHover = true
+                PCL_SETTINGS.showMinimapIcon = true
+                PCL_SETTINGS.minimapIcon = { hide = false }
+                
+                -- Update minimap icon visibility
+                local LibDBIcon = LibStub("LibDBIcon-1.0", true)
+                if LibDBIcon then
+                    LibDBIcon:Show("PCL")
+                end
+                
                 if PCL_frames.RefreshLayout then PCL_frames:RefreshLayout() end
             end,
             timeout = 0,

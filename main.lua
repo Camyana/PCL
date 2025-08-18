@@ -127,6 +127,62 @@ PCL_OnAddonCompartmentClick = function()
     PCL_Load:Toggle()
 end
 
+-- Minimap Icon DataBroker Object
+local LibDBIcon = LibStub("LibDBIcon-1.0", true)
+local LibDataBroker = LibStub("LibDataBroker-1.1", true)
+
+local PCLMinimapIcon = LibDataBroker and LibDataBroker:NewDataObject("PCL", {
+    type = "launcher",
+    text = "PCL",
+    icon = "Interface\\AddOns\\PCL\\pcl-logo-32",
+    OnClick = function(self, button)
+        if button == "LeftButton" then
+            PCL_Load:Toggle()
+        elseif button == "RightButton" then
+            -- Open settings
+            if PCL_frames and PCL_frames.openSettings then
+                PCL_frames:openSettings()
+            end
+        end
+    end,
+    OnTooltipShow = function(tooltip)
+        tooltip:AddLine("Pet Collection Log")
+    end,
+})
+
+-- Initialize minimap icon
+local function InitializeMinimapIcon()
+    if not LibDBIcon or not PCLMinimapIcon then
+        return
+    end
+    
+    -- Ensure settings exist
+    if not PCL_SETTINGS then
+        PCL_SETTINGS = {}
+    end
+    
+    -- Default to showing minimap icon
+    if PCL_SETTINGS.showMinimapIcon == nil then
+        PCL_SETTINGS.showMinimapIcon = true
+    end
+    
+    if PCL_SETTINGS.minimapIcon == nil then
+        PCL_SETTINGS.minimapIcon = {
+            hide = not PCL_SETTINGS.showMinimapIcon,
+        }
+    end
+    
+    -- Register the minimap icon
+    LibDBIcon:Register("PCL", PCLMinimapIcon, PCL_SETTINGS.minimapIcon)
+    
+    -- Show or hide based on setting
+    if PCL_SETTINGS.showMinimapIcon then
+        LibDBIcon:Show("PCL")
+    else
+        LibDBIcon:Hide("PCL")
+    end
+end
+
 -- Save total pet count
 local totalPetCount = CountPets()
 
@@ -423,6 +479,36 @@ local function onevent(self, event, arg1, ...)
             end)
             if not success then
                 print("|cffFF0000PCL:|r Search initialization error:", err or "Unknown error")
+            end
+        end
+        
+        -- Initialize minimap icon
+        local success, err = pcall(function()
+            InitializeMinimapIcon()
+        end)
+        if not success then
+            print("|cffFF0000PCL:|r Minimap icon initialization error:", err or "Unknown error")
+        end
+        
+        -- Register slash commands
+        SLASH_PCLICON1 = "/pclicon"
+        SlashCmdList["PCLICON"] = function(msg)
+            PCL_SETTINGS.showMinimapIcon = not PCL_SETTINGS.showMinimapIcon
+            
+            if not PCL_SETTINGS.minimapIcon then
+                PCL_SETTINGS.minimapIcon = {}
+            end
+            PCL_SETTINGS.minimapIcon.hide = not PCL_SETTINGS.showMinimapIcon
+            
+            local LibDBIcon = LibStub("LibDBIcon-1.0", true)
+            if LibDBIcon then
+                if PCL_SETTINGS.showMinimapIcon then
+                    LibDBIcon:Show("PCL")
+                    print("|cff1FB7EBPCL:|r Minimap icon shown")
+                else
+                    LibDBIcon:Hide("PCL")
+                    print("|cff1FB7EBPCL:|r Minimap icon hidden")
+                end
             end
         end
         

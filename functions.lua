@@ -1708,6 +1708,32 @@ function PCL_functions:AddonSettings()
     CreateCheckbox("Show Pet Level", "Show highest level owned for each pet", "showPetLevel", -80)
     CreateCheckbox("Use Blizzard Theme", "Use Blizzard styled frames (requires reload)", "useBlizzardTheme", -112, true)
     CreateCheckbox("Show Only Rare+ (Collected)", "Only show collected pets that are rare quality or better", "showOnlyRare", -144)
+    
+    -- Add minimap icon checkbox with special handling
+    local minimapCb = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
+    minimapCb:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -176)
+    minimapCb.Text:SetText("Show Minimap Icon")
+    minimapCb:SetChecked(PCL_SETTINGS.showMinimapIcon ~= false) -- Default to true
+    minimapCb.tooltip = "Toggle the display of the Minimap Icon."
+    minimapCb:SetScript("OnClick", function(self)
+        PCL_SETTINGS.showMinimapIcon = self:GetChecked() and true or false
+        
+        -- Initialize minimapIcon table if needed
+        if not PCL_SETTINGS.minimapIcon then
+            PCL_SETTINGS.minimapIcon = {}
+        end
+        PCL_SETTINGS.minimapIcon.hide = not PCL_SETTINGS.showMinimapIcon
+        
+        -- Update the minimap icon if LibDBIcon is available
+        local LibDBIcon = LibStub("LibDBIcon-1.0", true)
+        if LibDBIcon then
+            if PCL_SETTINGS.showMinimapIcon then
+                LibDBIcon:Show("PCL")
+            else
+                LibDBIcon:Hide("PCL")
+            end
+        end
+    end)
 
     local category = Settings.RegisterCanvasLayoutCategory(panel, "PCL")
     Settings.RegisterAddOnCategory(category)
