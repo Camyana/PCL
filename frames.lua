@@ -164,6 +164,11 @@ end
 
 -- Rebuild layout after size/theme changes
 function PCL_frames:RefreshLayout()
+    -- Don't refresh layout during combat or restricted situations to avoid protected function errors
+    if InCombatLockdown() then
+        return
+    end
+    
     if not PCL_mainFrame then return end
     -- Adjust nav height
     if PCLcore.PCL_MF_Nav then
@@ -407,6 +412,28 @@ function PCL_frames:CreateMainFrame()
         if PCLcore.PCL_MF_Nav then
             PCLcore.PCL_MF_Nav:Show()
         end
+        
+        -- Don't refresh layout during combat or restricted situations to avoid protected function errors
+        if InCombatLockdown() then
+            return
+        end
+        
+        -- Refresh layout when opening the main window to ensure everything is up to date
+        -- Check if overview content is ready first, defer if not
+        if PCLcore.overviewFrames and #PCLcore.overviewFrames > 0 and PCLcore.stats then
+            -- Overview frames exist and stats are available, refresh immediately
+            if PCL_frames and PCL_frames.RefreshLayout then
+                PCL_frames:RefreshLayout()
+            end
+        else
+            -- Overview content not ready yet, defer the refresh
+            C_Timer.After(1.5, function()
+                -- Check again for combat when the timer fires
+                if not InCombatLockdown() and PCL_frames and PCL_frames.RefreshLayout then
+                    PCL_frames:RefreshLayout()
+                end
+            end)
+        end
     end)
     
     -- Add OnHide handler to hide navigation when main frame is closed
@@ -454,7 +481,12 @@ end
 function PCLcore:BuildSectionsOrdered()
     local pinned, overview, expansions, others = nil, nil, {}, {}
     local playerFaction = UnitFactionGroup("player")
-    local isClassic = PCLcore.Function:IsClassicWoW()
+    local isClassic = false  -- Default to false if Function module not available
+    
+    -- Safely check if Function module is available
+    if PCLcore.Function and PCLcore.Function.IsClassicWoW then
+        isClassic = PCLcore.Function:IsClassicWoW()
+    end
     
     for i = 1, #PCLcore.sectionNames do
         local v = PCLcore.sectionNames[i]
@@ -492,9 +524,11 @@ function PCL_frames:SetTabs()
     if PCLcore.BuildSectionsOrdered then
         PCLcore:BuildSectionsOrdered()
     end
-    if PCLcore.Function and PCLcore.Function.CalculateSectionStats then
-        PCLcore.Function:CalculateSectionStats()
-    end
+    -- Remove direct stats calculation during initialization to prevent timeout
+    -- Stats will be calculated later via UpdateCollection's deferred mechanism
+    -- if PCLcore.Function and PCLcore.Function.CalculateSectionStats then
+    --     PCLcore.Function:CalculateSectionStats()
+    -- end
     
     -- Refresh overview stats after calculation
     if PCLcore.overviewFrames then
@@ -1413,6 +1447,11 @@ function PCL_frames:createOverviewCategory(set, relativeFrame)
 end
 
 function PCL_frames:createCategoryFrame(set, relativeFrame, sectionName)
+    -- Don't create pet frames during combat or restricted situations to avoid protected function errors
+    if InCombatLockdown() then
+        return
+    end
+    
     if not set then
         return
     end
@@ -2270,26 +2309,29 @@ function PCL_frames:createSettingsFrame(relativeFrame)
     resetBtn:SetScript("OnMouseDown", function(self) self:SetBackdropColor(0.4,0.1,0.1,0.9) end)
     resetBtn:SetScript("OnMouseUp", function(self) self:SetBackdropColor(0.8,0.2,0.2,0.9) end)
 
-    StaticPopupDialogs = StaticPopupDialogs or {}
-    StaticPopupDialogs["PCL_RESET_SETTINGS"] = {
-        text = L("Are you sure you want to reset all PCL settings?"),
-        button1 = YES,
-        button2 = NO,
-        OnAccept = function()
-            PCL_SETTINGS.useBlizzardTheme = false
-            PCL_SETTINGS.hideCollectedPets = false
-            PCL_SETTINGS.PetsPerRow = 12
-            PCL_SETTINGS.opacity = 0.95
-            PCL_SETTINGS.statusBarTexture = "Blizzard"
-            PCL_SETTINGS.enablePetCardOnHover = true
-            if PCL_frames.RefreshLayout then PCL_frames:RefreshLayout() end
-        end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-        preferredIndex = 3,
-    }
-    resetBtn:SetScript("OnClick", function() StaticPopup_Show("PCL_RESET_SETTINGS") end)
+    resetBtn:SetScript("OnClick", function() 
+        -- Create the popup dialog only when needed to avoid tainting StaticPopupDialogs during initialization
+        StaticPopupDialogs = StaticPopupDialogs or {}
+        StaticPopupDialogs["PCL_RESET_SETTINGS"] = {
+            text = L("Are you sure you want to reset all PCL settings?"),
+            button1 = YES,
+            button2 = NO,
+            OnAccept = function()
+                PCL_SETTINGS.useBlizzardTheme = false
+                PCL_SETTINGS.hideCollectedPets = false
+                PCL_SETTINGS.PetsPerRow = 12
+                PCL_SETTINGS.opacity = 0.95
+                PCL_SETTINGS.statusBarTexture = "Blizzard"
+                PCL_SETTINGS.enablePetCardOnHover = true
+                if PCL_frames.RefreshLayout then PCL_frames:RefreshLayout() end
+            end,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+        }
+        StaticPopup_Show("PCL_RESET_SETTINGS") 
+    end)
     rightY = rightY - 50
 
     return frame

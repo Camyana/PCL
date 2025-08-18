@@ -747,20 +747,60 @@ SlashCmdList["PCL"] = function(msg)
     if msg:lower() == "help" then
         print(PCLcore.L["|cff00CCFFPet Collection Log Commands:\n|cffFF0000Show:|cffFFFFFF Shows your Pet collection log\n|cffFF0000Icon:|cffFFFFFF Toggles the minimap icon\n|cffFF0000Config:|cffFFFFFF Opens the settings\n|cffFF0000Help:|cffFFFFFF Shows commands"])
     end
-    if msg:lower() == "show" then
-        PCLcore.Main.Toggle();
+    if msg:lower() == "show" or msg:lower() == "" then
+        -- Safe initialization before showing
+        if not PCLcore.dataLoaded then
+            local success, err = pcall(function()
+                if PCL_Load and PCL_Load.Init then
+                    return PCL_Load:Init()
+                end
+                return false
+            end)
+            if not success then
+                print("|cffFF0000PCL:|r Initialization error:", err or "Unknown error")
+                return
+            elseif not success then
+                print("|cffFFFF00PCL:|r Initializing addon data, please wait...")
+                return
+            end
+        end
+        
+        if PCLcore.Main and PCLcore.Main.Toggle then
+            local success, err = pcall(function()
+                PCLcore.Main.Toggle()
+            end)
+            if not success then
+                print("|cffFF0000PCL:|r Error showing interface:", err or "Unknown error")
+            end
+        else
+            print("|cffFF0000PCL:|r Interface not available. Try /pcl refresh")
+        end
     end
     if msg:lower() == "icon" then
-        PCLcore.Function.PCL_MM();
+        if PCLcore.Function and PCLcore.Function.PCL_MM then
+            PCLcore.Function.PCL_MM()
+        else
+            print("|cffFF0000PCL:|r Minimap function not available")
+        end
     end        
-    if msg:lower() == "" then
-        PCLcore.Main.Toggle();
-    end
     if msg:lower() == "debug" then
-        PCLcore.Function:GetCollectedPets();
+        if PCLcore.Function and PCLcore.Function.GetCollectedPets then
+            PCLcore.Function:GetCollectedPets()
+        else
+            print("|cffFF0000PCL:|r Debug function not available")
+        end
     end
     if msg:lower() == "config" or msg == "settings" then
-        PCLcore.Frames:openSettings();
+        if PCLcore.Frames and PCLcore.Frames.openSettings then
+            local success, err = pcall(function()
+                PCLcore.Frames:openSettings()
+            end)
+            if not success then
+                print("|cffFF0000PCL:|r Error opening settings:", err or "Unknown error")
+            end
+        else
+            print("|cffFF0000PCL:|r Settings not available. Try /pcl refresh")
+        end
     end
     if msg:lower() == "refresh" then
         if PCLcore.Main and type(PCLcore.Main.Init) == "function" then

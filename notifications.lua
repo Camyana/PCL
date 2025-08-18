@@ -1,4 +1,4 @@
--- PCL Notification System
+-- PCL Notification System - TEMPORARILY DISABLED
 -- Shows update notifications and first-time user messages
 
 local PCL = PCL or {}
@@ -6,6 +6,25 @@ PCL.Notifications = {}
 
 -- Make PCL globally accessible
 _G["PCL"] = PCL
+
+-- Temporarily disable all notifications to prevent protected function errors
+function PCL.Notifications:CheckAndShowNotification()
+    -- Disabled
+    return
+end
+
+function PCL.Notifications:ShowWelcomeMessage()
+    -- Disabled
+    return
+end
+
+function PCL.Notifications:ShowUpdateMessage()
+    -- Disabled
+    return
+end
+
+-- Disable the rest of the file
+if true then return end
 
 -- Current version from TOC (update this when version changes)
 local CURRENT_VERSION = "0.01A"

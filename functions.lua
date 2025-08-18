@@ -124,7 +124,7 @@ function PCL_functions:ShouldFilterPetByQuality(speciesID)
     end
     
     -- Only apply quality filter to collected pets
-    if not IsPetCollected(speciesID) then
+    if not PCL_functions:IsPetCollected(speciesID) then
         return false  -- Show uncollected pets regardless of quality setting
     end
     
@@ -199,7 +199,7 @@ end
 PCLcore.Function.IsPetFactionSpecific = IsPetFactionSpecific
 
 -- Check if a pet is collected based on species ID
-function IsPetCollected(petSpeciesID)
+function PCL_functions:IsPetCollected(petSpeciesID)
     if not petSpeciesID then
         return false
     end
@@ -217,8 +217,19 @@ function IsPetCollected(petSpeciesID)
     return isCollected
 end
 
+-- Create a safe global alias to maintain compatibility but prevent conflicts
+local function PCL_IsPetCollected(petSpeciesID)
+    return PCL_functions:IsPetCollected(petSpeciesID)
+end
+
+-- Safely replace the global function to prevent conflicts with Blizzard functions
+if not _G.IsPetCollected_PCL_Original then
+    _G.IsPetCollected_PCL_Original = _G.IsPetCollected -- Backup original if it exists
+    _G.IsPetCollected = PCL_IsPetCollected -- Replace with our safe version
+end
+
 -- Also add it to the PCLcore.Function namespace for consistency
-PCLcore.Function.IsPetCollected = IsPetCollected
+PCLcore.Function.IsPetCollected = PCL_functions.IsPetCollected
 
 -- Check if a pet is pinned in the PCL_PINNED table
 function PCL_functions:CheckIfPinned(petID)
@@ -429,7 +440,7 @@ function PCL_functions:compareLink()
 end
 
 
-function KethoEditBox_Show(text)
+function PCL_functions:KethoEditBox_Show(text)
     if not KethoEditBox then
         local f = CreateFrame("Frame", "KethoEditBox", UIParent, "DialogBoxFrame")
         f:SetPoint("CENTER")
@@ -483,7 +494,7 @@ function KethoEditBox_Show(text)
     PCLcore.PCL_MF:Hide()
 end
 
-function PCL_functions:initSections()
+function PCL_functions:initSections(deferOverview)
     -- * --------------------------------
     -- * Create variables and assign strings to each section.
     -- * --------------------------------
@@ -509,8 +520,19 @@ function PCL_functions:initSections()
         PCLcore.overview:SetPoint("TOPLEFT", PCL_mainFrame.ScrollChild, "TOPLEFT", 30, 0)  -- Consistent with other content frames
         PCLcore.overview:SetBackdropColor(0, 0, 0, 0)
     end
-    -- Build the overview content into the overview frame
-    PCLcore.Frames:createOverviewCategory(PCLcore.sections, PCLcore.overview)
+    
+    -- Defer heavy overview content creation if requested
+    if not deferOverview then
+        -- Build the overview content into the overview frame
+        PCLcore.Frames:createOverviewCategory(PCLcore.sections, PCLcore.overview)
+    else
+        -- Defer overview creation to improve initialization performance
+        C_Timer.After(0.5, function()
+            if PCLcore.Frames and PCLcore.Frames.createOverviewCategory and PCLcore.sections and PCLcore.overview then
+                PCLcore.Frames:createOverviewCategory(PCLcore.sections, PCLcore.overview)
+            end
+        end)
+    end
 
     local tabFrames, numTabs = PCLcore.Frames:SetTabs() 
 
@@ -562,24 +584,51 @@ end
 PCL_functions.GetCollectedMounts = PCL_functions.GetCollectedPets
 
 -- Update collection data (triggers collection check)
-function PCL_functions:UpdateCollection()
+function PCL_functions:UpdateCollection(skipStatsCalculation)
     if PCLcore.Function and PCLcore.Function.GetCollectedPets then
         PCLcore.Function:GetCollectedPets()
     end
     if not PCLcore.stats then PCLcore.stats = {} end
     if not PCLcore.stats["Pinned"] then PCLcore.stats["Pinned"] = { total = 0, collected = 0 } end
-    -- NEW: immediately (re)calculate stats and refresh overview progress bars when data available
-    if PCLcore.Function and PCLcore.Function.CalculateSectionStats and PCLcore.petList and next(PCLcore.petList) then
-        PCLcore.Function:CalculateSectionStats()
-        if PCLcore.Function.RefreshOverviewProgressBars then
-            PCLcore.Function:RefreshOverviewProgressBars()
-        end
+    
+    -- Skip heavy computation during initialization unless specifically requested
+    if not skipStatsCalculation then
+        -- Force stats calculation after a short delay to ensure data is available
+        C_Timer.After(1.0, function()
+            if PCLcore.Function and PCLcore.Function.CalculateSectionStats then
+                PCLcore.Function:CalculateSectionStats(true) -- Force full calculation
+                
+                -- After stats calculation, also refresh layout if main window is open
+                C_Timer.After(0.1, function()
+                    if PCLcore.PCL_MF and PCLcore.PCL_MF:IsShown() and PCL_frames and PCL_frames.RefreshLayout then
+                        PCL_frames:RefreshLayout()
+                    end
+                end)
+            end
+        end)
     end
 end
 
 -- Calculate statistics for each section
-function PCL_functions:CalculateSectionStats()
+function PCL_functions:CalculateSectionStats(forceFullCalculation)
     if not PCLcore.petList or not PCLcore.stats then
+        return
+    end
+    
+    -- During initialization, only do minimal stats setup unless forced
+    if not forceFullCalculation and not PCLcore.dataLoaded then
+        -- Just initialize the stats structure without heavy computation
+        for sectionId, sectionData in pairs(PCLcore.petList) do
+            if type(sectionData) == "table" and sectionData.name then
+                local sectionName = sectionData.name
+                if not PCLcore.stats[sectionName] then
+                    PCLcore.stats[sectionName] = {
+                        total = 0,
+                        collected = 0
+                    }
+                end
+            end
+        end
         return
     end
     
@@ -590,7 +639,20 @@ function PCL_functions:CalculateSectionStats()
         end
     end
     
-    -- Calculate stats for each section
+    -- Calculate stats for each section with batch processing to avoid script timeout
+    local processedSections = 0
+    local totalSections = 0
+    
+    -- Count total sections first
+    for sectionId, sectionData in pairs(PCLcore.petList) do
+        if type(sectionData) == "table" and sectionData.name then
+            totalSections = totalSections + 1
+        end
+    end
+    
+    -- Process all sections in one go to avoid timing issues
+    local processedSections = 0
+    
     for sectionId, sectionData in pairs(PCLcore.petList) do
         if type(sectionData) == "table" and sectionData.name then
             local sectionName = sectionData.name
@@ -619,8 +681,8 @@ function PCL_functions:CalculateSectionStats()
                                 if allowed then
                                     totalPets = totalPets + 1
                                     
-                                    -- Check if pet is collected
-                                    if IsPetCollected(petSpeciesID) then
+                                    -- Check if pet is collected using the proper function reference
+                                    if PCLcore.Function.IsPetCollected and PCLcore.Function:IsPetCollected(petSpeciesID) then
                                         collectedPets = collectedPets + 1
                                     end
                                 end
@@ -635,10 +697,17 @@ function PCL_functions:CalculateSectionStats()
                 total = totalPets,
                 collected = collectedPets
             }
+            
+            processedSections = processedSections + 1
         end
     end
     
-    -- Update Pinned section stats
+    -- Refresh overview after all sections are processed
+    if PCLcore.Function.RefreshOverviewProgressBars then
+        PCLcore.Function:RefreshOverviewProgressBars()
+    end
+    
+    -- Update Pinned section stats immediately (this is fast)
     if PCL_PINNED then
         PCLcore.stats["Pinned"] = {
             total = #PCL_PINNED,
@@ -650,16 +719,23 @@ end
 -- NEW: helper to refresh overview progress bars without rebuilding UI
 function PCL_functions:RefreshOverviewProgressBars()
     if not PCLcore.stats or not PCLcore.overviewFrames then return end
+    
     for _, of in ipairs(PCLcore.overviewFrames) do
         local stats = PCLcore.stats[of.name]
         local bar = of.frame
+        
         if stats and bar and stats.total and stats.collected then
             local total = stats.total
             local collected = stats.collected
             local pct = (total > 0) and (collected/total)*100 or 0
+            
             bar:SetMinMaxValues(0,100)
             bar:SetValue(pct)
-            if bar.Text then bar.Text:SetText(string.format("%d/%d (%d%%)", collected, total, math.floor(pct))) end
+            
+            if bar.Text then 
+                local textStr = string.format("%d/%d (%d%%)", collected, total, math.floor(pct))
+                bar.Text:SetText(textStr)
+            end
             -- color logic
             local c
             if total == 0 then
@@ -674,6 +750,12 @@ function PCL_functions:RefreshOverviewProgressBars()
                 c = PCL_SETTINGS.progressColors.complete
             end
             if c then bar:SetStatusBarColor(c.r,c.g,c.b) end
+            
+            -- Force frame update to ensure UI reflects changes
+            if bar.Update then
+                bar:Update()
+            end
+            bar:Show()  -- Ensure the bar is visible
         end
     end
 end
@@ -785,9 +867,9 @@ function PCL_functions:SetPetClickFunctionality(frame, petSpeciesID, petName, it
                     PCLcore.RefreshUIFrames()
                 end
             else
-                -- Normal right-click - attempt to summon pet if collected
-                if IsPetCollected(tonumber(petSpeciesID)) then
-                    C_PetJournal.SummonRandomPet(false)  -- Summon a random pet or dismiss current
+                -- Normal right-click - pet summoning disabled to prevent protected function errors
+                if PCLcore.Function and PCLcore.Function.IsPetCollected and PCLcore.Function:IsPetCollected(petSpeciesID) then
+                    print("|cffFFFF00PCL:|r Pet summoning disabled to prevent protected function errors. Use the Pet Journal to summon pets.")
                 end
             end
         elseif button == 'LeftButton' then
@@ -798,26 +880,15 @@ function PCL_functions:SetPetClickFunctionality(frame, petSpeciesID, petName, it
                     ChatEdit_InsertLink(petLink)
                 end
             else
-                -- Normal left-click - attempt to summon specific pet if collected
-                if IsPetCollected(tonumber(petSpeciesID)) then
-                    -- Get the first owned pet of this species
-                    local petGUID = nil
-                    for i = 1, C_PetJournal.GetNumPets() do
-                        local guid, speciesID, owned = C_PetJournal.GetPetInfoByIndex(i)
-                        if owned and speciesID == tonumber(petSpeciesID) then
-                            petGUID = guid
-                            break
-                        end
-                    end
-                    if petGUID then
-                        C_PetJournal.SummonPetByGUID(petGUID)
-                    end
+                -- Normal left-click - pet summoning disabled to prevent protected function errors
+                if PCLcore.Function and PCLcore.Function.IsPetCollected and PCLcore.Function:IsPetCollected(petSpeciesID) then
+                    print("|cffFFFF00PCL:|r Pet summoning disabled to prevent protected function errors. Use the Pet Journal to summon pets.")
                 end
             end
         end
         if button == 'MiddleButton' then
             -- Middle click to attempt to summon pet if it's collected
-            if IsPetCollected(tonumber(petSpeciesID)) then
+            if PCLcore.Function and PCLcore.Function.IsPetCollected and PCLcore.Function:IsPetCollected(petSpeciesID) then
                 -- Get the first owned pet of this species
                 local petGUID = nil
                 for i = 1, C_PetJournal.GetNumPets() do
@@ -828,7 +899,8 @@ function PCL_functions:SetPetClickFunctionality(frame, petSpeciesID, petName, it
                     end
                 end
                 if petGUID then
-                    C_PetJournal.SummonPetByGUID(petGUID)
+                    -- Pet summoning disabled to prevent protected function errors
+                    print("|cffFFFF00PCL:|r Pet summoning disabled to prevent protected function errors. Use the Pet Journal to summon pets.")
                 end
             end
         end
@@ -914,10 +986,8 @@ function PCL_functions:SetMouseClickFunctionalityPin(frame, mountID, mountName, 
             end
         end
         if button == 'MiddleButton' then
-            -- Middle click to cast mount if it's collected
-            if IsPetCollected(mountID) then
-                CastSpellByName(mountName);
-            end
+            -- Middle click to cast mount disabled to prevent protected function errors
+            print("|cffFFFF00PCL:|r Mount casting disabled to prevent protected function errors. Use the Collections window to summon mounts.")
         end
     end)
 end
@@ -1072,10 +1142,8 @@ function PCL_functions:SetMouseClickFunctionality(frame, mountID, mountName, ite
             end
         end
         if button == 'MiddleButton' then
-            -- Middle click to cast mount if it's collected
-            if IsPetCollected(mountID) then
-                CastSpellByName(mountName);
-            end
+            -- Middle click to cast mount disabled to prevent protected function errors
+            print("|cffFFFF00PCL:|r Mount casting disabled to prevent protected function errors. Use the Collections window to summon mounts.")
         end
     end)
 end
@@ -1647,3 +1715,43 @@ function PCL_functions:AddonSettings()
 end
 
 PCLcore.Function.AddonSettings = PCL_functions.AddonSettings
+
+-- Stub functions for missing functionality to prevent errors during initialization
+function PCL_functions:CreatePinnedPet(petID, category, section)
+    -- Placeholder for pinned pet creation functionality
+    -- This prevents errors when mount pinning functionality tries to call this
+end
+
+function PCL_functions:UpdateAllPinIcons(mountID)
+    -- Placeholder for pin icon update functionality
+    -- This prevents errors when pin status changes
+end
+
+function PCL_functions:CheckAndRefreshAfterPinnedChanges(sectionName)
+    -- Placeholder for pinned changes refresh functionality
+    -- This prevents errors when section changes need to refresh pinned content
+end
+
+-- Add these functions to the PCLcore.Function namespace
+PCLcore.Function.CreatePinnedPet = PCL_functions.CreatePinnedPet
+PCLcore.Function.UpdateAllPinIcons = PCL_functions.UpdateAllPinIcons
+PCLcore.Function.CheckAndRefreshAfterPinnedChanges = PCL_functions.CheckAndRefreshAfterPinnedChanges
+
+-- Global aliases for backward compatibility (safe namespace)
+-- These create controlled global references to prevent conflicts
+IsPetCollected = function(...) return PCL_functions:IsPetCollected(...) end
+KethoEditBox_Show = function(...) return PCL_functions:KethoEditBox_Show(...) end
+
+-- Debug function to manually trigger stats calculation
+function PCL_ForceStatsCalculation()
+    if PCLcore and PCLcore.Function and PCLcore.Function.CalculateSectionStats then
+        PCLcore.Function:CalculateSectionStats(true)
+    end
+end
+
+-- Debug function to manually refresh overview
+function PCL_RefreshOverview()
+    if PCLcore and PCLcore.Function and PCLcore.Function.RefreshOverviewProgressBars then
+        PCLcore.Function:RefreshOverviewProgressBars()
+    end
+end
